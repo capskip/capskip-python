@@ -34,6 +34,6 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
+        # Uses PyPI Trusted Publishing (OIDC) via the id-token permission above —
+        # no API token or secret required.
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

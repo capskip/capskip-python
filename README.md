@@ -259,7 +259,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow.
 - [CapSkip website](https://capskip.com)
 - [CapSkip API docs](https://capskip.com/api-docs/)
 - [Report an issue](https://github.com/capskip/capskip-python/issues)
-- [PyPI package](https://pypi.org/project/capskip/) *(when published)*
+- [PyPI package](https://pypi.org/project/capskip/)
 
 ---
 

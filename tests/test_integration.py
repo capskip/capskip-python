@@ -102,6 +102,12 @@ def test_polling_retries_then_solves(solver):
     assert solver.recaptcha(sitekey=SITEKEY, url=URL + '/slow')['code'] == CODE
 
 
+def test_polling_through_empty_responses(solver):
+    # Regression: CapSkip returns an empty body before a result is ready; the
+    # SDK must keep polling instead of raising "cannot recognize response".
+    assert solver.recaptcha(sitekey=SITEKEY, url=URL + '/empty')['code'] == CODE
+
+
 def test_manual_send_and_get_result(solver):
     cid = solver.send(method='userrecaptcha', googlekey=SITEKEY, pageurl=URL)
     assert cid
@@ -167,6 +173,11 @@ async def test_async_concurrent(async_solver):
         async_solver.turnstile(sitekey=TS_SITEKEY, url=URL),
     )
     assert all(r['code'] == CODE for r in results)
+
+
+@pytest.mark.asyncio
+async def test_async_polling_through_empty_responses(async_solver):
+    assert (await async_solver.recaptcha(sitekey=SITEKEY, url=URL + '/empty'))['code'] == CODE
 
 
 @pytest.mark.asyncio

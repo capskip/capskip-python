@@ -75,6 +75,8 @@ def _make_handler():
                 cid = f'never{next(ids)}'
             elif 'slow' in pageurl:
                 cid = f'slow{next(ids)}'
+            elif 'empty' in pageurl:
+                cid = f'empty{next(ids)}'
             else:
                 cid = str(next(ids))
             id_type[cid] = fields.get('method', '')
@@ -84,6 +86,14 @@ def _make_handler():
             cid = q.get('id', '')
             want_json = str(q.get('json')) == '1'
             poll_count[cid] = poll_count.get(cid, 0) + 1
+
+            # CapSkip returns an empty 200 body when no result is available yet
+            # (briefly right after submit, for an unknown id, or once a solved
+            # token has already been read). It must be treated as "not ready".
+            if cid.startswith('empty') and poll_count[cid] < 3:
+                self._send('')
+                return
+
             not_ready = cid.startswith('never') or (
                 cid.startswith('slow') and poll_count[cid] < 2)
 

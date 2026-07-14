@@ -20,9 +20,18 @@ def _next_poll_interval(interval: float, ceiling: float) -> float:
 
 
 def _parse_poll_response(response: str, json_mode: int = 0):
+    text = (response or '').strip()
+
+    # CapSkip returns an empty body whenever no result is available yet: briefly
+    # right after submit (before it starts reporting CAPCHA_NOT_READY), for an
+    # unknown id, and after a solved token has already been read once. Treat it
+    # like CAPCHA_NOT_READY so the caller keeps polling instead of failing.
+    if not text:
+        raise NetworkException
+
     if json_mode:
         try:
-            data = json.loads(response)
+            data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise ApiException(f'invalid JSON response: {response}') from exc
 
@@ -34,13 +43,13 @@ def _parse_poll_response(response: str, json_mode: int = 0):
 
         return data
 
-    if response == 'CAPCHA_NOT_READY':
+    if text == 'CAPCHA_NOT_READY':
         raise NetworkException
 
-    if not response.startswith('OK|'):
+    if not text.startswith('OK|'):
         raise ApiException(f'cannot recognize response {response}')
 
-    return response[3:]
+    return text[3:]
 
 
 def _apply_poll_result(result: dict, polled) -> dict:

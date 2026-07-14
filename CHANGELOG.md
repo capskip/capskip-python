@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-14
+
+### Fixed
+
+- Polling no longer crashes with `ApiException: cannot recognize response` when
+  CapSkip returns an empty response body. CapSkip returns an empty body while no
+  result is available yet — briefly right after a captcha is submitted (before it
+  reports `CAPCHA_NOT_READY`), for an unknown id, and after a solved token has
+  already been read. The SDK now treats an empty body as "not ready" and keeps
+  polling, so `recaptcha()`, `turnstile()`, and `normal()` solve reliably instead
+  of failing on the first poll. Applies to both the sync and async clients.
+
 ## [1.0.0] - 2026-07-14
 
 ### Added
@@ -28,4 +40,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests (sync + async) with a mocked API client
 - Documentation: Tutorial, Getting Started, API Reference, Troubleshooting
 
+[1.0.1]: https://github.com/capskip/capskip-python/releases/tag/v1.0.1
 [1.0.0]: https://github.com/capskip/capskip-python/releases/tag/v1.0.0

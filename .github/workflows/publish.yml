@@ -37,3 +37,6 @@ jobs:
         # Uses PyPI Trusted Publishing (OIDC) via the id-token permission above —
         # no API token or secret required.
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Don't fail if this version's files are already on PyPI (e.g. a re-run tag).
+          skip-existing: true

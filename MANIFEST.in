@@ -1,0 +1,10 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include SECURITY.md
+recursive-include docs *.md
+recursive-include examples *.py
+recursive-include examples *.png
+recursive-include tests *.py
+global-exclude __pycache__
+global-exclude *.py[cod]

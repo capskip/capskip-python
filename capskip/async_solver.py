@@ -7,8 +7,14 @@ import httpx
 
 from .async_api import AsyncApiClient
 from ._api_params import apply_param_aliases, apply_proxy, prepare_submit_params
-from .exceptions import ApiException, NetworkException, TimeoutException, ValidationException, SolverExceptions
-from .solver import INITIAL_POLLING_INTERVAL, _apply_poll_result, _next_poll_interval, _parse_poll_response
+from .exceptions import NetworkException, TimeoutException, ValidationException, SolverExceptions
+from .solver import (
+    INITIAL_POLLING_INTERVAL,
+    _apply_poll_result,
+    _next_poll_interval,
+    _parse_poll_response,
+    _parse_submit_response,
+)
 
 
 class AsyncCapSkip:
@@ -101,9 +107,7 @@ class AsyncCapSkip:
         params = self._prepare_send_params({**kwargs, 'key': self.API_KEY})
         files = params.pop('files', {})
         response = await self.api_client.in_(files=files, **params)
-        if not response.startswith('OK|'):
-            raise ApiException(f'cannot recognize response {response}')
-        return response[3:]
+        return _parse_submit_response(response)
 
     async def get_result(self, id_, json=0):
         query = {'key': self.API_KEY, 'action': 'get', 'id': id_}

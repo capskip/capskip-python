@@ -57,6 +57,11 @@ def test_normal_data_uri(solver):
     assert solver.normal('data:image/png;base64,' + B64)['code'] == CODE
 
 
+def test_normal_json_submit(solver):
+    # json=1 makes in.php return a JSON submit response; the SDK must parse it.
+    assert solver.normal(B64, json=1)['code'] == CODE
+
+
 def test_normal_url_download(solver, capskip_server):
     host, port = capskip_server
     assert solver.normal(f'http://{host}:{port}/image.png')['code'] == CODE

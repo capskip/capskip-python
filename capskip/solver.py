@@ -63,6 +63,25 @@ def _apply_poll_result(result: dict, polled) -> dict:
     return result
 
 
+def _parse_submit_response(response: str) -> str:
+    # CapSkip's in.php returns OK|<id> by default, or {"status":1,"request":"<id>"}
+    # when the submit carried json=1. Accept both so submitting with json=1 works.
+    text = (response or '').strip()
+
+    if text.startswith('OK|'):
+        return text[3:]
+
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        data = None
+
+    if isinstance(data, dict) and data.get('status') == 1 and 'request' in data:
+        return str(data['request'])
+
+    raise ApiException(f'cannot recognize response {response}')
+
+
 class CapSkip:
     """Client for the CapSkip local captcha solver (image, reCAPTCHA, Turnstile)."""
 
@@ -151,9 +170,7 @@ class CapSkip:
         params = self._prepare_send_params({**kwargs, 'key': self.API_KEY})
         files = params.pop('files', {})
         response = self.api_client.in_(files=files, **params)
-        if not response.startswith('OK|'):
-            raise ApiException(f'cannot recognize response {response}')
-        return response[3:]
+        return _parse_submit_response(response)
 
     def get_result(self, id_, json=0):
         query = {'key': self.API_KEY, 'action': 'get', 'id': id_}

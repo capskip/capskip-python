@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-07-15
+
+### Fixed
+
+- Submitting with `json=1` no longer fails with `ApiException: cannot recognize
+  response`. With `json=1` CapSkip's `in.php` returns `{"status": 1, "request":
+  "<id>"}` instead of `OK|<id>`; `send()` now parses both forms, so
+  `normal(..., json=1)` and the equivalent reCAPTCHA/Turnstile calls submit and
+  solve correctly. Applies to both the sync and async clients.
+
 ## [1.0.1] - 2026-07-14
 
 ### Fixed
@@ -40,5 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests (sync + async) with a mocked API client
 - Documentation: Tutorial, Getting Started, API Reference, Troubleshooting
 
+[1.0.2]: https://github.com/capskip/capskip-python/releases/tag/v1.0.2
 [1.0.1]: https://github.com/capskip/capskip-python/releases/tag/v1.0.1
 [1.0.0]: https://github.com/capskip/capskip-python/releases/tag/v1.0.0

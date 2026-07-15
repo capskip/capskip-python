@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capskip"
-version = "1.0.1"
+version = "1.0.2"
 description = "Python SDK for the CapSkip local captcha solver"
 readme = "README.md"
 license = { text = "MIT" }

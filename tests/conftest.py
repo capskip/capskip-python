@@ -80,7 +80,11 @@ def _make_handler():
             else:
                 cid = str(next(ids))
             id_type[cid] = fields.get('method', '')
-            self._send('OK|' + cid)
+            # in.php returns JSON when the submit carried json=1, mirroring CapSkip.
+            if str(fields.get('json')) == '1':
+                self._send('{"status":1,"request":"' + cid + '"}', 'application/json')
+            else:
+                self._send('OK|' + cid)
 
         def _res(self, q):
             cid = q.get('id', '')

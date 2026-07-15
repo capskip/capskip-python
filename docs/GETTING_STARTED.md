@@ -69,7 +69,7 @@ pip install -e .
 python -c "import capskip; print(capskip.__version__)"
 ```
 
-Expected output: `1.0.1` (or your installed version).
+Expected output: `1.0.2` (or your installed version).
 
 ### Verify CapSkip connectivity
 

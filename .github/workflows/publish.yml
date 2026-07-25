@@ -16,6 +16,7 @@ jobs:
       name: pypi
       url: https://pypi.org/project/capskip/
     permissions:
+      contents: write # required to create the GitHub release
       id-token: write
 
     steps:
@@ -40,3 +41,12 @@ jobs:
         with:
           # Don't fail if this version's files are already on PyPI (e.g. a re-run tag).
           skip-existing: true
+
+      # Without this the tag ships to PyPI but never appears on the repo's
+      # Releases page. Notes are auto-generated from merged PRs and can be
+      # edited afterwards.
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CapSkip Python SDK ${{ github.ref_name }}
+          generate_release_notes: true

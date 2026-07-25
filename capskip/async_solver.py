@@ -10,6 +10,7 @@ from ._api_params import apply_param_aliases, apply_proxy, prepare_submit_params
 from .exceptions import NetworkException, TimeoutException, ValidationException, SolverExceptions
 from .solver import (
     INITIAL_POLLING_INTERVAL,
+    _apply_geetest_solution,
     _apply_poll_result,
     _next_poll_interval,
     _parse_poll_response,
@@ -65,6 +66,31 @@ class AsyncCapSkip:
             poll_json=1,
             **kwargs,
         )
+
+    async def geetest(self, gt, challenge, url, **kwargs):
+        """Solve a GeeTest v3 slider.
+
+        `gt` is static per site; `challenge` is single-use and expires in about a
+        minute, so fetch a fresh pair immediately before calling this. Pass
+        `api_server` when the site uses a non-default GeeTest API server domain.
+
+        The result carries the raw answer as `code` (a JSON string) plus the
+        parsed `challenge`, `validate`, and `seccode` fields to post back to the
+        target site.
+        """
+        params = {
+            'gt': gt,
+            'challenge': challenge,
+            'url': url,
+            'method': 'geetest',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Like reCAPTCHA, this is a real browser solve (load, slide, verify) and
+        # can retry internally, so it gets the longer of the two timeouts unless
+        # the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_geetest_solution(await self.solve(**params))
 
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
@@ -124,4 +150,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'recaptcha', params.get('version', 'v2'))
         if method == 'turnstile':
             return prepare_submit_params(params, 'turnstile')
+        if method == 'geetest':
+            return prepare_submit_params(params, 'geetest')
         return apply_proxy(apply_param_aliases(params))

@@ -6,7 +6,7 @@
 
 Official Python client for the [CapSkip](https://capskip.com) **local** captcha solver.
 
-CapSkip runs on your machine and exposes a standard captcha-solver HTTP API (the familiar `in.php` / `res.php` endpoints). This SDK wraps that API with clean, familiar method names, so you can solve captchas locally — no cloud service and no per-solve API fees beyond your CapSkip license.
+CapSkip runs on your machine and exposes a standard captcha-solver HTTP API (the familiar `in.php` / `res.php` endpoints). This SDK wraps that API with clean, familiar method names, so you can solve captchas locally — no per-solve API fees beyond your CapSkip license.
 
 ---
 

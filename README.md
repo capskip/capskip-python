@@ -66,6 +66,7 @@ print(result["code"])  # g-recaptcha-response token
 | reCAPTCHA v3 Enterprise | `solver.recaptcha(..., version="v3", enterprise=1)` |
 | Cloudflare Turnstile (widget) | `solver.turnstile(sitekey, url)` |
 | Cloudflare Turnstile (challenge page) | `solver.turnstile(..., data=..., pagedata=...)` |
+| GeeTest v3 (slide) | `solver.geetest(gt, challenge, url)` |
 
 ---
 
@@ -93,7 +94,7 @@ solver = CapSkip(
     host="127.0.0.1",        # CapSkip host
     port=8080,               # CapSkip port from app settings
     defaultTimeout=120,      # seconds — image captcha polling timeout
-    recaptchaTimeout=300,    # seconds — reCAPTCHA / Turnstile polling timeout
+    recaptchaTimeout=300,    # seconds — reCAPTCHA / Turnstile / GeeTest polling timeout
     pollingInterval=5,       # max seconds between res.php polls (starts at 0.25s, backs off to this)
 )
 ```
@@ -163,7 +164,23 @@ result = solver.turnstile(
 )
 ```
 
-### With a proxy (reCAPTCHA & Turnstile only)
+### GeeTest v3
+
+`gt` is static per site, but `challenge` is single-use and expires in about a
+minute — fetch a fresh pair right before solving.
+
+```python
+result = solver.geetest(
+    gt="81388ea1fc187e0c335c0a8907ff2625",
+    challenge="7cf6a8b1a2c34d5e6f7089abcdef0123",
+    url="https://example.com/login",
+)
+
+# Post these back exactly as the site's own front-end would
+result["challenge"], result["validate"], result["seccode"]
+```
+
+### With a proxy (reCAPTCHA, Turnstile & GeeTest only)
 
 ```python
 # Proxy is not supported for image captcha
@@ -211,6 +228,9 @@ Every solve method returns:
     "userAgent": "..."      # Turnstile only — use when submitting challenge-page tokens
 }
 ```
+
+GeeTest additionally expands its answer into `challenge`, `validate`, and
+`seccode`, while `code` keeps the raw JSON string.
 
 ---
 

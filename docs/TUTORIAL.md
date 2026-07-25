@@ -13,14 +13,15 @@ or jump to the section you need.
 5. [reCAPTCHA v2](#5-recaptcha-v2)
 6. [reCAPTCHA v3](#6-recaptcha-v3)
 7. [Cloudflare Turnstile](#7-cloudflare-turnstile)
-8. [Using a proxy](#8-using-a-proxy)
-9. [Async and concurrency](#9-async-and-concurrency)
-10. [The manual workflow](#10-the-manual-workflow)
-11. [Return values](#11-return-values)
-12. [Error handling](#12-error-handling)
-13. [End-to-end: solve and submit](#13-end-to-end-solve-and-submit)
-14. [Parameter reference](#14-parameter-reference)
-15. [Best practices](#15-best-practices)
+8. [GeeTest v3](#8-geetest-v3)
+9. [Using a proxy](#9-using-a-proxy)
+10. [Async and concurrency](#10-async-and-concurrency)
+11. [The manual workflow](#11-the-manual-workflow)
+12. [Return values](#12-return-values)
+13. [Error handling](#13-error-handling)
+14. [End-to-end: solve and submit](#14-end-to-end-solve-and-submit)
+15. [Parameter reference](#15-parameter-reference)
+16. [Best practices](#16-best-practices)
 
 ---
 
@@ -150,7 +151,7 @@ result = solver.normal("captcha.png", json=1)
 ```
 
 > **Note:** Proxies are **not** supported for image captcha — passing one raises
-> `ValidationException`. Proxies apply only to reCAPTCHA and Turnstile.
+> `ValidationException`. Proxies apply only to reCAPTCHA, Turnstile, and GeeTest.
 
 ---
 
@@ -241,24 +242,96 @@ result = solver.turnstile(
 
 ---
 
-## 8. Using a proxy
+## 8. GeeTest v3
+
+`solver.geetest(gt, challenge, url)` solves the GeeTest v3 slide puzzle.
+
+### Finding `gt` and `challenge`
+
+Unlike a sitekey, GeeTest needs **two** values, and one of them is short-lived:
+
+| Value | Lifetime | Where it comes from |
+|---|---|---|
+| `gt` | Static per site | The same place as `challenge` |
+| `challenge` | **Single-use, expires in ~1 minute** | An endpoint the site calls that returns `{"gt": "...", "challenge": "..."}` |
+
+Open DevTools → Network on the target page and look for a request to something like
+`.../register.php`, `gettype`, or `get.php`. You can also read the values out of the
+`initGeetest({ gt, challenge })` call in the page scripts.
+
+```python
+import requests
+
+# Ask the target site for a fresh pair immediately before solving.
+data = requests.get("https://example.com/captcha/register.php").json()
+
+result = solver.geetest(
+    gt=data["gt"],
+    challenge=data["challenge"],
+    url="https://example.com/login",
+)
+```
+
+### Using the answer
+
+The result carries the three values the site's own front-end would submit:
+
+```python
+result["challenge"]   # geetest_challenge
+result["validate"]    # geetest_validate
+result["seccode"]     # geetest_seccode
+
+result["code"]        # the same answer as a raw JSON string
+```
+
+Post them back exactly as the site expects:
+
+```python
+requests.post("https://example.com/login", data={
+    "username": "...",
+    "password": "...",
+    "geetest_challenge": result["challenge"],
+    "geetest_validate": result["validate"],
+    "geetest_seccode": result["seccode"],
+})
+```
+
+> **`challenge` is one-shot.** Never cache or reuse a pair. If a solve fails with a
+> bad-challenge error, request a *new* pair and retry — retrying with the same
+> `challenge` can never succeed.
+
+If the site uses a non-default GeeTest API server domain, pass it through:
+
+```python
+result = solver.geetest(gt=..., challenge=..., url=..., api_server="api-na.geetest.com")
+```
+
+Because GeeTest is a real browser solve (load, slide, verify), it uses the longer
+`recaptchaTimeout` budget rather than `defaultTimeout`.
+
+---
+
+## 9. Using a proxy
 
 Solving through the same IP you will submit from greatly improves acceptance rates
-for reCAPTCHA and Turnstile. Pass the proxy as a dict with `type` and `uri`:
+for reCAPTCHA, Turnstile, and GeeTest. Pass the proxy as a dict with `type` and `uri`:
 
 ```python
 proxy = {"type": "HTTPS", "uri": "user:pass@1.2.3.4:3128"}
 
 result = solver.recaptcha(sitekey="...", url="https://example.com", proxy=proxy)
 result = solver.turnstile(sitekey="...", url="https://example.com", proxy=proxy)
+result = solver.geetest(gt="...", challenge="...", url="https://example.com", proxy=proxy)
 ```
 
-Supported proxy types: `HTTP`, `HTTPS`, `SOCKS5`, `SOCKS5H`. The `uri` may include
+Supported proxy types: `HTTP`, `HTTPS`, `SOCKS5`, `SOCKS5H` — matched
+case-insensitively. Anything else (including `SOCKS4`) raises
+`ValidationException` before the request is sent. The `uri` may include
 credentials (`login:password@host:port`) or be a bare `host:port`.
 
 ---
 
-## 9. Async and concurrency
+## 10. Async and concurrency
 
 `AsyncCapSkip` has the exact same method names as `CapSkip`, but every solve method
 is a coroutine. This lets you solve many captchas concurrently.
@@ -290,7 +363,7 @@ results = await asyncio.gather(task1, task2, return_exceptions=True)
 
 ---
 
-## 10. The manual workflow
+## 11. The manual workflow
 
 If you want to submit now and collect the answer later, use the two low-level steps
 directly.
@@ -322,7 +395,7 @@ Turnstile) instead of a plain string.
 
 ---
 
-## 11. Return values
+## 12. Return values
 
 Every high-level solve method (`normal`, `recaptcha`, `turnstile`, `solve`) returns
 a dictionary:
@@ -340,7 +413,7 @@ solution string (or a dict when `json=1`).
 
 ---
 
-## 12. Error handling
+## 13. Error handling
 
 The SDK raises four exception types, all subclasses of `CapSkipError`:
 
@@ -384,7 +457,7 @@ except CapSkipError as e:
 
 ---
 
-## 13. End-to-end: solve and submit
+## 14. End-to-end: solve and submit
 
 A realistic flow — solve a reCAPTCHA, then submit the token to the target site
 through the **same** proxy:
@@ -436,7 +509,7 @@ requests.post(CHALLENGE_URL, data={"cf-turnstile-response": solved["code"]}, hea
 
 ---
 
-## 14. Parameter reference
+## 15. Parameter reference
 
 ### Solve methods
 
@@ -445,6 +518,7 @@ requests.post(CHALLENGE_URL, data={"cf-turnstile-response": solved["code"]}, hea
 | Image | `normal(file, json=0)` |
 | reCAPTCHA | `recaptcha(sitekey, url, version="v2", enterprise=0, **kwargs)` |
 | Turnstile | `turnstile(sitekey, url, **kwargs)` |
+| GeeTest v3 | `geetest(gt, challenge, url, **kwargs)` |
 | Manual submit | `send(**kwargs) -> id` |
 | Manual poll | `get_result(id, json=0)` |
 
@@ -457,6 +531,7 @@ The SDK accepts friendly names and converts them to the raw API parameters:
 | `url` | `pageurl` |
 | `score`, `minScore` | `min_score` |
 | `datas`, `data_s` | `data-s` |
+| `apiServer`, `api_subdomain` | `api_server` |
 | `proxy` (dict) | `proxy` + `proxytype` strings |
 
 Anything CapSkip does not document for a given captcha type is rejected with
@@ -464,14 +539,17 @@ Anything CapSkip does not document for a given captcha type is rejected with
 
 ---
 
-## 15. Best practices
+## 16. Best practices
 
 - **Keep CapSkip running.** The SDK talks to a local app; if it is not running you
   get `NetworkException`.
 - **Use the token immediately.** reCAPTCHA and Turnstile tokens expire within a
   couple of minutes.
 - **Match sitekey and pageurl exactly** to the page the widget loads on.
-- **Solve and submit from the same IP** (same proxy) for reCAPTCHA and Turnstile.
+- **Fetch a fresh GeeTest `challenge` per solve.** It is single-use and expires in
+  about a minute; a cached pair always fails.
+- **Solve and submit from the same IP** (same proxy) for reCAPTCHA, Turnstile, and
+  GeeTest.
 - **Never commit secrets.** Read `CAPSKIP_API_KEY` and proxy credentials from the
   environment, not source code.
 - **Tune timeouts** for slow captcha types with `recaptchaTimeout` and

@@ -150,6 +150,7 @@ python examples/recaptcha.py
 | `image_captcha.py` | Image captcha from file, URL, or base64 |
 | `recaptcha.py` | reCAPTCHA v2, v3, invisible, enterprise, proxy |
 | `turnstile.py` | Cloudflare Turnstile widget and challenge page |
+| `geetest.py` | GeeTest v3 slider, including fetching a fresh `gt`/`challenge` pair |
 | `async_example.py` | Parallel async solving |
 | `verify_connection.py` | Check CapSkip is running |
 

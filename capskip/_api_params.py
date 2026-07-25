@@ -19,12 +19,24 @@ TURNSTILE_SUBMIT = frozenset({
     'proxy', 'proxytype',
 })
 
+GEETEST_SUBMIT = frozenset({
+    'method', 'gt', 'challenge', 'pageurl', 'api_server', 'json',
+    'proxy', 'proxytype',
+})
+
+# The only values CapSkip maps to a proxy scheme; it answers
+# ERROR_BAD_PARAMETERS for anything else, SOCKS4 included. Matched
+# case-insensitively, as the server does.
+PROXY_TYPES = ('HTTP', 'HTTPS', 'SOCKS5', 'SOCKS5H')
+
 _PARAM_ALIASES = {
     'url': 'pageurl',
     'score': 'min_score',
     'minScore': 'min_score',
     'datas': 'data-s',
     'data_s': 'data-s',
+    'apiServer': 'api_server',
+    'api_subdomain': 'api_server',
 }
 
 
@@ -104,6 +116,33 @@ def validate_turnstile_submit(params: dict) -> None:
         )
 
 
+def validate_geetest_submit(params: dict) -> None:
+    # All three are documented as required. gt is static per site, challenge is
+    # single-use and expires in about a minute; without them CapSkip answers
+    # ERROR_BAD_PARAMETERS, and without pageurl ERROR_PAGEURL. Fail locally so a
+    # missing value does not cost a round-trip.
+    for key in ('gt', 'challenge', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for GeeTest v3.")
+
+    unknown = _unknown_keys(params, GEETEST_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for GeeTest: {sorted(unknown)}."
+        )
+
+
+def validate_proxy_type(params: dict) -> None:
+    proxytype = params.get('proxytype')
+    if proxytype in (None, ''):
+        return
+    if str(proxytype).upper() not in PROXY_TYPES:
+        raise ValidationException(
+            f"Unsupported proxytype {proxytype!r}. "
+            f"CapSkip accepts: {', '.join(PROXY_TYPES)}."
+        )
+
+
 def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') -> dict:
     params = apply_param_aliases(params)
     params = apply_proxy(params)
@@ -114,5 +153,11 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
         validate_recaptcha_submit(params, version)
     elif captcha_type == 'turnstile':
         validate_turnstile_submit(params)
+    elif captcha_type == 'geetest':
+        validate_geetest_submit(params)
+
+    # Skipped for 'normal', which rejects proxy outright with a clearer message.
+    if captcha_type != 'normal':
+        validate_proxy_type(params)
 
     return params

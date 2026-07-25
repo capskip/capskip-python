@@ -63,6 +63,38 @@ def _apply_poll_result(result: dict, polled) -> dict:
     return result
 
 
+# GeeTest answers come back as a JSON string in `request`, keyed with the
+# geetest_ prefix that the target site's own form fields use.
+_GEETEST_FIELDS = (
+    ('challenge', 'geetest_challenge'),
+    ('validate', 'geetest_validate'),
+    ('seccode', 'geetest_seccode'),
+)
+
+
+def _apply_geetest_solution(result: dict) -> dict:
+    """Expand the GeeTest answer into `challenge` / `validate` / `seccode`.
+
+    `code` keeps the raw JSON string so callers that forward it verbatim (or that
+    were written against another solver's API) keep working. If it does not parse,
+    the result is returned untouched rather than masking the server's reply.
+    """
+    try:
+        payload = json.loads(result.get('code') or '')
+    except (json.JSONDecodeError, TypeError):
+        return result
+
+    if not isinstance(payload, dict):
+        return result
+
+    for short, prefixed in _GEETEST_FIELDS:
+        value = payload.get(prefixed, payload.get(short))
+        if value is not None:
+            result[short] = value
+
+    return result
+
+
 def _parse_submit_response(response: str) -> str:
     # CapSkip's in.php returns OK|<id> by default, or {"status":1,"request":"<id>"}
     # when the submit carried json=1. Accept both so submitting with json=1 works.
@@ -130,6 +162,31 @@ class CapSkip:
             **kwargs,
         )
 
+    def geetest(self, gt, challenge, url, **kwargs):
+        """Solve a GeeTest v3 slider.
+
+        `gt` is static per site; `challenge` is single-use and expires in about a
+        minute, so fetch a fresh pair immediately before calling this. Pass
+        `api_server` when the site uses a non-default GeeTest API server domain.
+
+        The result carries the raw answer as `code` (a JSON string) plus the
+        parsed `challenge`, `validate`, and `seccode` fields to post back to the
+        target site.
+        """
+        params = {
+            'gt': gt,
+            'challenge': challenge,
+            'url': url,
+            'method': 'geetest',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Like reCAPTCHA, this is a real browser solve (load, slide, verify) and
+        # can retry internally, so it gets the longer of the two timeouts unless
+        # the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_geetest_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -186,4 +243,6 @@ class CapSkip:
             return prepare_submit_params(params, 'recaptcha', params.get('version', 'v2'))
         if method == 'turnstile':
             return prepare_submit_params(params, 'turnstile')
+        if method == 'geetest':
+            return prepare_submit_params(params, 'geetest')
         return apply_proxy(apply_param_aliases(params))

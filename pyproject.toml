@@ -5,17 +5,38 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "capskip"
 version = "1.1.0"
-description = "Python SDK for the CapSkip local captcha solver"
+description = "Captcha solver for Python: solve reCAPTCHA v2/v3, Cloudflare Turnstile, GeeTest and image captchas with CapSkip, a local unlimited captcha solver with no per-solve fees."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "CapSkip", email = "support@capskip.com" }]
 keywords = [
     "captcha",
     "captcha-solver",
+    "captcha-solving",
+    "captcha-bypass",
+    "unlimited-captcha-solver",
+    "local-captcha-solver",
+    "free-captcha-solver",
     "recaptcha",
+    "recaptcha-solver",
+    "recaptcha-v2",
+    "recaptcha-v3",
+    "recaptcha-enterprise",
     "cloudflare",
     "turnstile",
+    "turnstile-solver",
+    "cloudflare-turnstile",
     "geetest",
+    "geetest-solver",
+    "image-captcha",
+    "ocr",
+    "2captcha-alternative",
+    "anti-captcha-alternative",
+    "selenium",
+    "playwright",
+    "scrapy",
+    "browser-automation",
+    "web-scraping",
     "capskip",
     "automation",
 ]
@@ -27,8 +48,12 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Utilities",
 ]
 requires-python = ">=3.10"
 dependencies = [

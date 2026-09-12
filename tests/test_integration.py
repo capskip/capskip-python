@@ -11,9 +11,9 @@ from capskip import (
 )
 
 try:
-    from .conftest import CODE, USER_AGENT, PNG
+    from .conftest import ALTCHA_NUMBER, ALTCHA_TOKEN, CODE, USER_AGENT, PNG
 except ImportError:
-    from conftest import CODE, USER_AGENT, PNG
+    from conftest import ALTCHA_NUMBER, ALTCHA_TOKEN, CODE, USER_AGENT, PNG
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
 TS_SITEKEY = '0x4AAAAAAABUYP0XeMJF0xoy'
@@ -199,3 +199,46 @@ async def test_async_low_level_client(capskip_server):
     c = AsyncApiClient(host=host, port=port)
     resp = await c.in_(method='turnstile', key='capskip', sitekey=TS_SITEKEY, pageurl=URL)
     assert resp.startswith('OK|')
+
+
+CHALLENGE_URL = 'https://example.com/captcha/api/altcha/challenge'
+CHALLENGE_DOC = {
+    'algorithm': 'SHA-256',
+    'challenge': '3dd28253be6cc0c54d95f7f98c517e68',
+    'salt': '46d5b1c8871e5152d902ee3f?expires=1893456000',
+    'signature': '4b1cf0e0be0f4e5247e50b0f9a449830',
+    'maxnumber': 1000000,
+}
+
+
+def test_altcha_challenge_url(solver):
+    r = solver.altcha(url=URL, challenge_url=CHALLENGE_URL)
+    assert r['code'] == ALTCHA_TOKEN
+    assert r['token'] == ALTCHA_TOKEN
+    assert r['number'] == ALTCHA_NUMBER
+    assert r['captchaId']
+
+
+def test_altcha_challenge_json(solver):
+    import json as _json
+    r = solver.altcha(url=URL, challenge_json=_json.dumps(CHALLENGE_DOC))
+    assert r['token'] == ALTCHA_TOKEN
+
+
+def test_altcha_challenge_json_as_dict_survives_the_wire(solver):
+    # A dict has to reach the server as JSON, not as Python's repr, or the
+    # server answers ERROR_BAD_PARAMETERS.
+    r = solver.altcha(url=URL, challenge_json=CHALLENGE_DOC)
+    assert r['number'] == ALTCHA_NUMBER
+
+
+def test_altcha_without_a_challenge_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.altcha(url=URL)
+
+
+@pytest.mark.asyncio
+async def test_async_altcha(async_solver):
+    r = await async_solver.altcha(url=URL, challenge_url=CHALLENGE_URL)
+    assert r['token'] == ALTCHA_TOKEN
+    assert r['number'] == ALTCHA_NUMBER

@@ -10,6 +10,7 @@ from ._api_params import apply_param_aliases, apply_proxy, prepare_submit_params
 from .exceptions import NetworkException, TimeoutException, ValidationException, SolverExceptions
 from .solver import (
     INITIAL_POLLING_INTERVAL,
+    _apply_altcha_solution,
     _apply_geetest_solution,
     _apply_poll_result,
     _next_poll_interval,
@@ -92,6 +93,36 @@ class AsyncCapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_geetest_solution(await self.solve(**params))
 
+    async def altcha(self, url, **kwargs):
+        """Solve an ALTCHA proof-of-work challenge.
+
+        Pass `challenge_url` for CapSkip to fetch the challenge itself, or
+        `challenge_json` with the document you already have (a JSON string, or a
+        dict which is serialized for you). Sending both is allowed -- the inline
+        document wins. A proxy applies only to the `challenge_url` fetch.
+
+        Challenges expire fast -- some sites inside two minutes -- and an expired
+        one is refused with a bare "verification failed" that looks exactly like
+        a wrong answer. Fetch the challenge immediately before calling, and post
+        the token promptly.
+
+        The result carries the raw answer as `code`, the same string as `token`
+        (what the site's `altcha` form field expects, verbatim), and the counter
+        that solved it as `number`.
+        """
+        params = {
+            'url': url,
+            'method': 'altcha',
+            'poll_json': 1,
+            # An unset challenge param is dropped rather than sent as None, so
+            # `altcha(url, challenge_url=a, challenge_json=b)` works with either
+            # one left out.
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # Unlike GeeTest and reCAPTCHA this is CPU proof-of-work measured in
+        # milliseconds, not a browser solve, so it keeps the default timeout.
+        return _apply_altcha_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -152,4 +183,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'turnstile')
         if method == 'geetest':
             return prepare_submit_params(params, 'geetest')
+        if method == 'altcha':
+            return prepare_submit_params(params, 'altcha')
         return apply_proxy(apply_param_aliases(params))

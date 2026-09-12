@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from base64 import b64encode
+from base64 import b64decode, b64encode
 
 import requests
 
@@ -91,6 +91,32 @@ def _apply_geetest_solution(result: dict) -> dict:
         value = payload.get(prefixed, payload.get(short))
         if value is not None:
             result[short] = value
+
+    return result
+
+
+# ALTCHA answers come back as a base64 payload: the challenge document with the
+# winning counter added. That payload is what the site's own `altcha` form field
+# carries, so it is posted back verbatim.
+def _apply_altcha_solution(result: dict) -> dict:
+    """Expose the answer as `token`, and the winning counter as `number`.
+
+    `code` keeps the raw answer so callers that forward it verbatim (or that were
+    written against another solver's API) keep working; `token` is the same
+    string, named for the form field it goes into. If the payload does not
+    decode, the result is returned untouched rather than masking the server's
+    reply.
+    """
+    code = result.get('code') or ''
+    result['token'] = code
+
+    try:
+        payload = json.loads(b64decode(code, validate=True))
+    except (ValueError, TypeError):
+        return result
+
+    if isinstance(payload, dict) and 'number' in payload:
+        result['number'] = payload['number']
 
     return result
 
@@ -187,6 +213,36 @@ class CapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_geetest_solution(self.solve(**params))
 
+    def altcha(self, url, **kwargs):
+        """Solve an ALTCHA proof-of-work challenge.
+
+        Pass `challenge_url` for CapSkip to fetch the challenge itself, or
+        `challenge_json` with the document you already have (a JSON string, or a
+        dict which is serialized for you). Sending both is allowed -- the inline
+        document wins. A proxy applies only to the `challenge_url` fetch.
+
+        Challenges expire fast -- some sites inside two minutes -- and an expired
+        one is refused with a bare "verification failed" that looks exactly like
+        a wrong answer. Fetch the challenge immediately before calling, and post
+        the token promptly.
+
+        The result carries the raw answer as `code`, the same string as `token`
+        (what the site's `altcha` form field expects, verbatim), and the counter
+        that solved it as `number`.
+        """
+        params = {
+            'url': url,
+            'method': 'altcha',
+            'poll_json': 1,
+            # An unset challenge param is dropped rather than sent as None, so
+            # `altcha(url, challenge_url=a, challenge_json=b)` works with either
+            # one left out.
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # Unlike GeeTest and reCAPTCHA this is CPU proof-of-work measured in
+        # milliseconds, not a browser solve, so it keeps the default timeout.
+        return _apply_altcha_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -245,4 +301,6 @@ class CapSkip:
             return prepare_submit_params(params, 'turnstile')
         if method == 'geetest':
             return prepare_submit_params(params, 'geetest')
+        if method == 'altcha':
+            return prepare_submit_params(params, 'altcha')
         return apply_proxy(apply_param_aliases(params))

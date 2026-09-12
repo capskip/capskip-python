@@ -1,4 +1,6 @@
+import base64
 import itertools
+import json
 import struct
 import threading
 import zlib
@@ -9,6 +11,19 @@ import pytest
 
 CODE = 'SOLVED_TOKEN_abc123'
 USER_AGENT = 'CapSkipUA/1.0'
+
+# ALTCHA answers are base64 of the challenge document with the winning counter
+# added, so the mock has to return a real one for the token/number parsing to
+# mean anything.
+ALTCHA_NUMBER = 9661
+ALTCHA_TOKEN = base64.b64encode(json.dumps({
+    'algorithm': 'SHA-256',
+    'challenge': '3dd28253be6cc0c54d95f7f98c517e68',
+    'number': ALTCHA_NUMBER,
+    'salt': '46d5b1c8871e5152d902ee3f?expires=1893456000',
+    'signature': '4b1cf0e0be0f4e5247e50b0f9a449830',
+    'took': 16.58,
+}).encode()).decode()
 
 
 def _png_bytes():
@@ -105,6 +120,15 @@ def _make_handler():
                 self._send('{"status":0,"request":"CAPCHA_NOT_READY"}'
                            if want_json else 'CAPCHA_NOT_READY',
                            'application/json' if want_json else 'text/plain')
+            elif id_type.get(cid) == 'altcha':
+                # CapSkip emits a superset: the legacy status/request pair plus
+                # the createTask-shaped solution object.
+                self._send(json.dumps({
+                    'status': 1,
+                    'request': ALTCHA_TOKEN,
+                    'solution': {'token': ALTCHA_TOKEN, 'number': ALTCHA_NUMBER},
+                }), 'application/json') if want_json else self._send(
+                    'OK|' + ALTCHA_TOKEN)
             elif want_json and id_type.get(cid) == 'turnstile':
                 self._send(
                     f'{{"status":1,"request":"{CODE}","useragent":"{USER_AGENT}"}}',

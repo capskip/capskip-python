@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-12
+
+### Added
+
+- **ALTCHA support** via `altcha(url, **kwargs)` on both `CapSkip` and
+  `AsyncCapSkip`. Pass `challenge_url` for CapSkip to fetch the challenge, or
+  `challenge_json` with the document itself (a JSON string, or a `dict` which is
+  serialized for you). Sending both is allowed — the inline document wins. The
+  result exposes `token` (the value the site's `altcha` form field expects) and
+  `number`, the counter that solved it; `code` keeps the same raw string.
+- Parameter aliases `challengeUrl`/`challengeURL` for `challenge_url` and
+  `challengeJson`/`challengeJSON` for `challenge_json`.
+
+### Notes
+
+- ALTCHA is CPU proof-of-work rather than a browser solve, so it uses
+  `defaultTimeout` instead of the longer `recaptchaTimeout` that reCAPTCHA,
+  Turnstile and GeeTest use.
+- A proxy passed to `altcha()` applies only to the `challenge_url` fetch; a task
+  carrying its challenge inline never touches the network.
+
 ## [1.1.0] - 2026-07-26
 
 ### Added

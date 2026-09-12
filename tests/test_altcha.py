@@ -20,10 +20,34 @@ CHALLENGE_DOC = {
 }
 CHALLENGE_JSON = json.dumps(CHALLENGE_DOC)
 
-# What CapSkip hands back: base64 of the solved challenge document, with the
-# winning counter in `number`.
+# What CapSkip hands back for a *legacy* challenge: base64 of the solved
+# challenge document, with the winning counter in `number`.
 SOLVED = dict(CHALLENGE_DOC, number=9661)
 TOKEN = base64.b64encode(json.dumps(SOLVED).encode()).decode()
+
+# A PoW v2 answer is shaped completely differently: no top-level `number`, and
+# the counter sits at `solution.counter`. Captured from a real PBKDF2/SHA-256
+# deployment (captcha.seventy9.co.uk), the scheme altcha.org documents today.
+V2_PAYLOAD = {
+    'challenge': {
+        'parameters': {
+            'algorithm': 'PBKDF2/SHA-256',
+            'cost': 50000,
+            'expiresAt': 1789224090,
+            'keyLength': 32,
+            'keyPrefix': '00',
+            'nonce': '634c4f591fd086beb40d67312b85808a',
+            'salt': '511e1c75edbf295278c9bfb68191053c',
+        },
+        'signature': '9197e4a35ebff399d669e747c7c5e6ab079b30fe3437df268dc7caf34cf9e281',
+    },
+    'solution': {
+        'counter': 47,
+        'derivedKey': '0099db7cb36864d8875ff8305c9a3d2649b1f72cb774de1c',
+    },
+}
+V2_TOKEN = base64.b64encode(json.dumps(V2_PAYLOAD).encode()).decode()
+V2_NUMBER = 47
 
 
 class AltchaApiClient():
@@ -137,6 +161,44 @@ class AltchaTest(AbstractTest):
 
         self.assertEqual(result['token'], TOKEN)
         self.assertEqual(result['number'], 9661)
+
+    def test_expands_number_for_a_proof_of_work_v2_answer(self):
+        # A v2 token carries no top-level `number` -- the counter is at
+        # `solution.counter`, and the server reports it as `solution.number` in
+        # the poll payload. Reading only the token's own `number` silently drops
+        # it for every PBKDF2 site, which is the scheme ALTCHA recommends.
+        class V2Client(AltchaApiClient):
+            def res(self, **kwargs):
+                return json.dumps({
+                    'status': 1,
+                    'request': V2_TOKEN,
+                    'solution': {'token': V2_TOKEN, 'number': V2_NUMBER},
+                })
+
+        self.solver.api_client = V2Client()
+        result = self.solve()
+
+        self.assertEqual(result['token'], V2_TOKEN)
+        self.assertEqual(result['number'], V2_NUMBER)
+
+    def test_proof_of_work_v2_number_falls_back_to_the_token(self):
+        # Without the server's solution object -- a plain-text poll -- the
+        # counter is still recoverable from inside the payload.
+        class V2NoSolution(AltchaApiClient):
+            def res(self, **kwargs):
+                return json.dumps({'status': 1, 'request': V2_TOKEN})
+
+        self.solver.api_client = V2NoSolution()
+        result = self.solve()
+
+        self.assertEqual(result['number'], V2_NUMBER)
+
+    def test_solution_is_not_leaked_into_the_result(self):
+        # The poll's `solution` object is plumbing: its two fields are already
+        # exposed as `token` and `number`.
+        result = self.solve()
+
+        self.assertNotIn('solution', result)
 
     def test_undecodable_token_is_left_alone(self):
         class PlainClient(AltchaApiClient):

@@ -58,6 +58,13 @@ def _apply_poll_result(result: dict, polled) -> dict:
         user_agent = polled.get('useragent') or polled.get('userAgent')
         if user_agent:
             result['userAgent'] = user_agent
+        # ALTCHA's createTask-shaped `solution` object. Carried through so
+        # _apply_altcha_solution can read the counter the server already worked
+        # out, which is the only reliable source for a proof-of-work v2 answer;
+        # that method pops it, so it never reaches the caller.
+        solution = polled.get('solution')
+        if isinstance(solution, dict):
+            result['solution'] = solution
     else:
         result['code'] = polled
     return result
@@ -98,25 +105,56 @@ def _apply_geetest_solution(result: dict) -> dict:
 # ALTCHA answers come back as a base64 payload: the challenge document with the
 # winning counter added. That payload is what the site's own `altcha` form field
 # carries, so it is posted back verbatim.
+def _token_counter(code: str):
+    """Dig the winning counter out of a token, whichever scheme produced it.
+
+    The two ALTCHA generations nest it differently: a legacy payload is the
+    challenge document with a top-level `number` added, while a proof-of-work v2
+    payload is `{"challenge": {...}, "solution": {"counter": N, ...}}` and has no
+    `number` at all. Returns None if the payload does not decode.
+    """
+    try:
+        payload = json.loads(b64decode(code, validate=True))
+    except (ValueError, TypeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    if 'number' in payload:
+        return payload['number']
+
+    solution = payload.get('solution')
+    if isinstance(solution, dict):
+        return solution.get('counter')
+
+    return None
+
+
 def _apply_altcha_solution(result: dict) -> dict:
     """Expose the answer as `token`, and the winning counter as `number`.
 
     `code` keeps the raw answer so callers that forward it verbatim (or that were
     written against another solver's API) keep working; `token` is the same
-    string, named for the form field it goes into. If the payload does not
-    decode, the result is returned untouched rather than masking the server's
-    reply.
+    string, named for the form field it goes into.
+
+    The counter comes from the server's own `solution` object when the poll
+    carried one, because that is the single field both ALTCHA generations report
+    the same way. Only if it is absent -- a plain-text poll -- is it dug out of
+    the token, which is shaped differently per scheme. If neither yields one, the
+    result keeps its token and simply has no `number`, rather than masking the
+    server's reply.
     """
     code = result.get('code') or ''
     result['token'] = code
 
-    try:
-        payload = json.loads(b64decode(code, validate=True))
-    except (ValueError, TypeError):
-        return result
+    solution = result.pop('solution', None)
+    number = solution.get('number') if isinstance(solution, dict) else None
+    if number is None:
+        number = _token_counter(code)
 
-    if isinstance(payload, dict) and 'number' in payload:
-        result['number'] = payload['number']
+    if number is not None:
+        result['number'] = number
 
     return result
 

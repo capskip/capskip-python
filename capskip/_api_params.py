@@ -1,5 +1,7 @@
 """CapSkip API parameter validation (https://capskip.com/api-docs/)."""
 
+import json
+
 from .exceptions import ValidationException
 
 NORMAL_SUBMIT = frozenset({'method', 'body', 'json', 'file'})
@@ -24,6 +26,11 @@ GEETEST_SUBMIT = frozenset({
     'proxy', 'proxytype',
 })
 
+ALTCHA_SUBMIT = frozenset({
+    'method', 'pageurl', 'challenge_url', 'challenge_json', 'json',
+    'proxy', 'proxytype',
+})
+
 # The only values CapSkip maps to a proxy scheme; it answers
 # ERROR_BAD_PARAMETERS for anything else, SOCKS4 included. Matched
 # case-insensitively, as the server does.
@@ -37,6 +44,10 @@ _PARAM_ALIASES = {
     'data_s': 'data-s',
     'apiServer': 'api_server',
     'api_subdomain': 'api_server',
+    'challengeUrl': 'challenge_url',
+    'challengeURL': 'challenge_url',
+    'challengeJson': 'challenge_json',
+    'challengeJSON': 'challenge_json',
 }
 
 
@@ -132,6 +143,43 @@ def validate_geetest_submit(params: dict) -> None:
         )
 
 
+def normalize_altcha_submit(params: dict) -> dict:
+    """Drop unset challenge params and serialize an inline challenge document.
+
+    `altcha(url, challenge_url=a, challenge_json=b)` is normally called with one
+    of the two left as None, and the form body can only carry a string — so a
+    document passed as a dict is serialized rather than stringified into Python's
+    repr. Mirrors the server, which reads a JSON-body `null` as "not sent".
+    """
+    out = {k: v for k, v in params.items() if v is not None}
+
+    challenge = out.get('challenge_json')
+    if isinstance(challenge, (dict, list)):
+        out['challenge_json'] = json.dumps(challenge)
+
+    return out
+
+
+def validate_altcha_submit(params: dict) -> None:
+    if not params.get('pageurl'):
+        raise ValidationException("'pageurl' is required for ALTCHA.")
+
+    # CapSkip answers ERROR_BAD_PARAMETERS when neither is sent. Sending both is
+    # deliberately allowed -- the inline document simply wins, because fetching
+    # would only re-obtain what the caller already supplied.
+    if not params.get('challenge_url') and not params.get('challenge_json'):
+        raise ValidationException(
+            "ALTCHA needs a challenge: pass 'challenge_url' for CapSkip to fetch "
+            "it, or 'challenge_json' with the challenge document itself."
+        )
+
+    unknown = _unknown_keys(params, ALTCHA_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for ALTCHA: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -155,6 +203,9 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
         validate_turnstile_submit(params)
     elif captcha_type == 'geetest':
         validate_geetest_submit(params)
+    elif captcha_type == 'altcha':
+        params = normalize_altcha_submit(params)
+        validate_altcha_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

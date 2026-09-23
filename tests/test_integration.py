@@ -11,9 +11,15 @@ from capskip import (
 )
 
 try:
-    from .conftest import ALTCHA_NUMBER, ALTCHA_TOKEN, CODE, USER_AGENT, PNG
+    from .conftest import (
+        ALTCHA_NUMBER, ALTCHA_TOKEN, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
+        CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
+    )
 except ImportError:
-    from conftest import ALTCHA_NUMBER, ALTCHA_TOKEN, CODE, USER_AGENT, PNG
+    from conftest import (
+        ALTCHA_NUMBER, ALTCHA_TOKEN, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
+        CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
+    )
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
 TS_SITEKEY = '0x4AAAAAAABUYP0XeMJF0xoy'
@@ -242,3 +248,95 @@ async def test_async_altcha(async_solver):
     r = await async_solver.altcha(url=URL, challenge_url=CHALLENGE_URL)
     assert r['token'] == ALTCHA_TOKEN
     assert r['number'] == ALTCHA_NUMBER
+
+
+# -- Capy -----------------------------------------------------------------
+
+CAPY_KEY = 'PUZZLE_Abc1dEFghIJKLM2no34P56q7rStu8v'
+FOX_SITEKEY = 'sk_xtNxpk6fCdFbxh1_xJeGflSdCE9tn99G'
+FRIENDLY_SITEKEY = 'FCMGEMUD2M567T8G'
+
+
+def test_capy(solver):
+    r = solver.capy(CAPY_KEY, URL)
+    assert r['captchakey'] == CAPY_SOLUTION['captchakey']
+    assert r['challengekey'] == CAPY_SOLUTION['challengekey']
+    assert r['answer'] == CAPY_SOLUTION['answer']
+    assert r['captchaId']
+
+
+def test_capy_answer_crosses_the_wire_unchanged(solver):
+    # The answer is the drag path the widget would have recorded; the target
+    # site verifies it against the challenge it issued, so any edit breaks it.
+    r = solver.capy(CAPY_KEY, URL, api_server='https://jp.api.capy.me/')
+    assert r['answer'] == CAPY_SOLUTION['answer']
+
+
+def test_capy_avatar_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.capy(CAPY_KEY, URL, version='avatar')
+
+
+@pytest.mark.asyncio
+async def test_async_capy(async_solver):
+    r = await async_solver.capy(CAPY_KEY, URL)
+    assert r['answer'] == CAPY_SOLUTION['answer']
+    assert r['challengekey'] == CAPY_SOLUTION['challengekey']
+
+
+# -- CaptchaFox -----------------------------------------------------------
+
+def test_captchafox(solver):
+    r = solver.captchafox(FOX_SITEKEY, URL)
+    assert r['code'] == CAPTCHAFOX_TOKEN
+    assert r['token'] == CAPTCHAFOX_TOKEN
+    assert r['captchaId']
+
+
+def test_captchafox_reports_the_browsers_user_agent(solver):
+    # Not the one sent: CapSkip solves in its own browser, and the token has to
+    # be submitted under the UA that minted it.
+    caller_ua = 'Mozilla/5.0 (the caller own UA)'
+    r = solver.captchafox(FOX_SITEKEY, URL, useragent=caller_ua)
+    assert r['userAgent'] == CAPTCHAFOX_USER_AGENT
+    assert r['userAgent'] != caller_ua
+
+
+def test_captchafox_without_a_sitekey_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.captchafox('', URL)
+
+
+@pytest.mark.asyncio
+async def test_async_captchafox(async_solver):
+    r = await async_solver.captchafox(FOX_SITEKEY, URL)
+    assert r['token'] == CAPTCHAFOX_TOKEN
+
+
+# -- Friendly Captcha -----------------------------------------------------
+
+def test_friendly_captcha(solver):
+    r = solver.friendly_captcha(FRIENDLY_SITEKEY, URL, version='v1')
+    assert r['code'] == FRIENDLY_CAPTCHA_TOKEN
+    assert r['token'] == FRIENDLY_CAPTCHA_TOKEN
+    assert r['captchaId']
+
+
+def test_friendly_captcha_token_survives_the_wire_verbatim(solver):
+    # The token carries base64 padding and slashes; form encoding must round-trip
+    # them, or the target site rejects a token that looks fine.
+    r = solver.friendly_captcha(FRIENDLY_SITEKEY, URL,
+                                module_script='https://cdn.example.com/site.min.js')
+    assert r['token'] == FRIENDLY_CAPTCHA_TOKEN
+    assert '/' in r['token'] and '=' in r['token']
+
+
+def test_friendly_captcha_bad_version_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.friendly_captcha(FRIENDLY_SITEKEY, URL, version='v3')
+
+
+@pytest.mark.asyncio
+async def test_async_friendly_captcha(async_solver):
+    r = await async_solver.friendly_captcha(FRIENDLY_SITEKEY, URL, api_server='eu')
+    assert r['token'] == FRIENDLY_CAPTCHA_TOKEN

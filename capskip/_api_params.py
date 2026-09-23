@@ -31,6 +31,29 @@ ALTCHA_SUBMIT = frozenset({
     'proxy', 'proxytype',
 })
 
+CAPY_SUBMIT = frozenset({
+    'method', 'captchakey', 'pageurl', 'api_server', 'version', 'useragent', 'json',
+    'proxy', 'proxytype',
+})
+
+CAPTCHAFOX_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'api_server', 'useragent', 'json',
+    'proxy', 'proxytype',
+})
+
+FRIENDLY_CAPTCHA_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'version', 'module_script', 'nomodule_script',
+    'api_server', 'useragent', 'json', 'proxy', 'proxytype',
+})
+
+# CapSkip solves the puzzle family only. `avatar` is a different challenge behind
+# a different endpoint; the server refuses it at submit time rather than answering
+# it with a puzzle answer, which would bill for a solve the target site rejects.
+CAPY_VERSIONS = ('puzzle',)
+
+# Both spellings the server accepts, and the bare digits it also takes.
+FRIENDLY_CAPTCHA_VERSIONS = ('v1', 'v2', '1', '2')
+
 # The only values CapSkip maps to a proxy scheme; it answers
 # ERROR_BAD_PARAMETERS for anything else, SOCKS4 included. Matched
 # case-insensitively, as the server does.
@@ -48,6 +71,15 @@ _PARAM_ALIASES = {
     'challengeURL': 'challenge_url',
     'challengeJson': 'challenge_json',
     'challengeJSON': 'challenge_json',
+    # The server reads userAgent and useragent interchangeably on every method
+    # that takes one, so the SDK settles on the lowercase spelling its parameter
+    # tables document and accepts the camelCase one callers arrive with.
+    'userAgent': 'useragent',
+    'user_agent': 'useragent',
+    'captchaKey': 'captchakey',
+    'moduleScript': 'module_script',
+    'nomoduleScript': 'nomodule_script',
+    'noModuleScript': 'nomodule_script',
 }
 
 
@@ -180,6 +212,73 @@ def validate_altcha_submit(params: dict) -> None:
         )
 
 
+def drop_unset(params: dict) -> dict:
+    """Drop parameters left as None so an omitted optional is not sent as 'None'.
+
+    The form body can only carry strings, so a default of None would otherwise
+    reach the server stringified. Mirrors the server, which reads a JSON-body
+    `null` as "not sent".
+    """
+    return {k: v for k, v in params.items() if v is not None}
+
+
+def validate_capy_submit(params: dict) -> None:
+    # Both are documented as required; without captchakey the server answers
+    # ERROR_BAD_PARAMETERS and without pageurl ERROR_PAGEURL. Fail locally so a
+    # missing value does not cost a round-trip.
+    for key in ('captchakey', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for Capy.")
+
+    version = params.get('version')
+    if version not in (None, '') and str(version).lower() not in CAPY_VERSIONS:
+        raise ValidationException(
+            f"Unsupported Capy version {version!r}. CapSkip solves the puzzle "
+            f"family only -- 'avatar' is a different challenge behind a different "
+            f"endpoint, and the server refuses it rather than returning a puzzle "
+            f"answer the target site would reject."
+        )
+
+    unknown = _unknown_keys(params, CAPY_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for Capy: {sorted(unknown)}."
+        )
+
+
+def validate_captchafox_submit(params: dict) -> None:
+    for key in ('sitekey', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for CaptchaFox.")
+
+    unknown = _unknown_keys(params, CAPTCHAFOX_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for CaptchaFox: {sorted(unknown)}."
+        )
+
+
+def validate_friendly_captcha_submit(params: dict) -> None:
+    for key in ('sitekey', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for Friendly Captcha.")
+
+    version = params.get('version')
+    if version not in (None, '') and str(version).lower() not in FRIENDLY_CAPTCHA_VERSIONS:
+        raise ValidationException(
+            f"Unsupported Friendly Captcha version {version!r}. Use 'v1' or 'v2' "
+            f"(a bare 1 or 2 is accepted too). The two are different protocols "
+            f"sharing one sitekey namespace, so solving the wrong one returns a "
+            f"well-formed token the target site rejects."
+        )
+
+    unknown = _unknown_keys(params, FRIENDLY_CAPTCHA_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for Friendly Captcha: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -206,6 +305,15 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
     elif captcha_type == 'altcha':
         params = normalize_altcha_submit(params)
         validate_altcha_submit(params)
+    elif captcha_type == 'capy':
+        params = drop_unset(params)
+        validate_capy_submit(params)
+    elif captcha_type == 'captchafox':
+        params = drop_unset(params)
+        validate_captchafox_submit(params)
+    elif captcha_type == 'friendly_captcha':
+        params = drop_unset(params)
+        validate_friendly_captcha_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

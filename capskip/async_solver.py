@@ -11,8 +11,10 @@ from .exceptions import NetworkException, TimeoutException, ValidationException,
 from .solver import (
     INITIAL_POLLING_INTERVAL,
     _apply_altcha_solution,
+    _apply_capy_solution,
     _apply_geetest_solution,
     _apply_poll_result,
+    _apply_token_solution,
     _next_poll_interval,
     _parse_poll_response,
     _parse_submit_response,
@@ -123,6 +125,105 @@ class AsyncCapSkip:
         # milliseconds, not a browser solve, so it keeps the default timeout.
         return _apply_altcha_solution(await self.solve(**params))
 
+    async def capy(self, sitekey, url, **kwargs):
+        """Solve a Capy Puzzle captcha.
+
+        `sitekey` is the site's public Capy key, conventionally prefixed
+        `PUZZLE_`; it is sent as the `captchakey` the API documents. Pass
+        `api_server` when the widget script points somewhere other than
+        `https://jp.api.capy.me`.
+
+        The result is not a token. It carries `captchakey`, `challengekey` and
+        `answer`, which go into the target form's `capy_captchakey`,
+        `capy_challengekey` and `capy_answer` fields, plus the raw answer as
+        `code`. Submit `answer` verbatim -- it is the drag path the widget would
+        have recorded, so trimming or re-encoding it invalidates the solve.
+
+        The challenge key is single-use and short-lived, so submit promptly
+        rather than caching the three values for a later request.
+        """
+        params = {
+            'captchakey': sitekey,
+            'url': url,
+            'method': 'capy',
+            'poll_json': 1,
+            # An unset optional is dropped rather than sent as None, so
+            # `capy(key, url, api_server=None)` behaves as if it were omitted.
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # A Capy solve is one HTTP fetch plus pixel math, not a browser session,
+        # so it keeps the default timeout. It is held back to roughly two seconds
+        # before the answer is released -- Capy refuses answers that arrive faster
+        # than a human could have produced them -- which the default absorbs.
+        return _apply_capy_solution(await self.solve(**params))
+
+    async def captchafox(self, sitekey, url, **kwargs):
+        """Solve a CaptchaFox challenge.
+
+        `sitekey` is the public key the widget renders with, conventionally
+        prefixed `sk_`, and `url` has to be the page the widget actually runs on:
+        CaptchaFox checks it against the domains the key is registered for and
+        refuses a mismatch permanently rather than intermittently.
+
+        Pass `api_server` only when the target page does not load the default
+        widget. A page loading the MAM package expects a `MAM_` prefixed token,
+        and sending the wrong source still succeeds -- it just returns a token in
+        a format the site will not accept, which reads as a silent verification
+        failure rather than an error.
+
+        The result carries the token as both `code` and `token`, for the form's
+        `cf-captcha-response` field, and `userAgent` when the solve reported one.
+        That User-Agent is the browser's own, not any you sent, so submit the
+        token under it.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'captchafox',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # A real browser session, like reCAPTCHA and GeeTest, and longer again
+        # when an interactive challenge is drawn -- so it gets the longer of the
+        # two timeouts unless the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_token_solution(await self.solve(**params))
+
+    async def friendly_captcha(self, sitekey, url, **kwargs):
+        """Solve a Friendly Captcha proof-of-work challenge.
+
+        Two different protocols ship under this name and a sitekey does not tell
+        you which one a site uses, so say which: pass `version='v1'` or
+        `version='v2'`, or pass `module_script` with the src of the widget's
+        `type="module"` script tag and let CapSkip read the version off the build
+        the site actually loads. With neither, v1 is assumed. Solving the wrong
+        version returns a well-formed token the target site rejects, with nothing
+        to indicate the version was the problem.
+
+        Pass `api_server='eu'` for a sitekey on the EU data-residency tenant;
+        both tenants mint a token for the same sitekey, so the wrong one is only
+        caught by the site's own verification.
+
+        The result carries the token as both `code` and `token`. It goes into
+        `frc-captcha-solution` on v1 and `frc-captcha-response` on v2 -- the
+        field names differ, which is what catches an integration moved from one
+        to the other. A v2 token is roughly six kilobytes, so size whatever
+        carries it accordingly.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'friendly_captcha',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # Proof-of-work, but not the millisecond kind ALTCHA does: the service
+        # sets the difficulty per request and raises it for addresses it has seen
+        # a lot of, and v2 always solves in a browser. Both make solve time
+        # variable enough to want the longer timeout.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_token_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -185,4 +286,10 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'geetest')
         if method == 'altcha':
             return prepare_submit_params(params, 'altcha')
+        if method == 'capy':
+            return prepare_submit_params(params, 'capy')
+        if method == 'captchafox':
+            return prepare_submit_params(params, 'captchafox')
+        if method == 'friendly_captcha':
+            return prepare_submit_params(params, 'friendly_captcha')
         return apply_proxy(apply_param_aliases(params))

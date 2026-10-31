@@ -12,12 +12,12 @@ from capskip import (
 
 try:
     from .conftest import (
-        ALTCHA_NUMBER, ALTCHA_TOKEN, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
+        ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
     )
 except ImportError:
     from conftest import (
-        ALTCHA_NUMBER, ALTCHA_TOKEN, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
+        ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
     )
 
@@ -340,3 +340,49 @@ def test_friendly_captcha_bad_version_is_refused_locally(solver):
 async def test_async_friendly_captcha(async_solver):
     r = await async_solver.friendly_captcha(FRIENDLY_SITEKEY, URL, api_server='eu')
     assert r['token'] == FRIENDLY_CAPTCHA_TOKEN
+
+
+# -- Amazon WAF -----------------------------------------------------------
+
+WAF_KEY = 'AQIDAHjcYuEXAMPLEghicBgQ/7bFaQZ+m5FKCMDnO+vTbNg96AHDh0IR5vgzHNceHYqZR+GOAAAAfjB8'
+WAF_IV = 'CgAFRDIjfgAAA5yY'
+WAF_CONTEXT = 'Rbp3r8fvbuhmrCqpUe8Mh1TLvs8OSKJZiSs2vCF4dt9rxVZI7xYJa2n5k/9r+XaXe7KUIu2I8nXTDHHkDvIOTDc2'
+WAF_CHALLENGE_JS = 'https://3f2a9c7d41b0.edge.sdk.awswaf.com/3f2a9c7d41b0/8e51d0c7a2f4/challenge.js'
+WAF_JSAPI = 'https://5b7e0a19c3d8.us-east-1.captcha-sdk.awswaf.com/5b7e0a19c3d8/jsapi.js'
+
+
+def test_amazon_waf_challenge_page(solver):
+    r = solver.amazon_waf(WAF_KEY, WAF_IV, WAF_CONTEXT, URL,
+                          challenge_script=WAF_CHALLENGE_JS)
+    assert r['captcha_voucher'] == AMAZON_WAF_SOLUTION['captcha_voucher']
+    assert r['existing_token'] == AMAZON_WAF_SOLUTION['existing_token']
+
+
+def test_amazon_waf_widget_page(solver):
+    r = solver.amazon_waf(sitekey=WAF_KEY + '_0_1', url=URL, jsapiScript=WAF_JSAPI)
+    assert r['captcha_voucher'] == AMAZON_WAF_SOLUTION['captcha_voucher']
+    assert r['existing_token'] == AMAZON_WAF_SOLUTION['existing_token']
+
+
+def test_amazon_waf_keys_with_plus_slash_equals_cross_the_wire(solver):
+    """The keys carry +, / and =, which a form body has to URL-encode; a key
+    mangled on the way would be a different firewall configuration."""
+    r = solver.amazon_waf(WAF_KEY + '==', WAF_IV, WAF_CONTEXT, URL)
+    assert r['existing_token'] == AMAZON_WAF_SOLUTION['existing_token']
+
+
+def test_amazon_waf_lone_iv_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.amazon_waf(WAF_KEY, WAF_IV, None, URL)
+
+
+def test_amazon_waf_off_aws_script_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.amazon_waf(WAF_KEY, url=URL, jsapiScript='https://evil.example/jsapi.js')
+
+
+@pytest.mark.asyncio
+async def test_async_amazon_waf(async_solver):
+    r = await async_solver.amazon_waf(WAF_KEY, WAF_IV, WAF_CONTEXT, URL)
+    assert r['captcha_voucher'] == AMAZON_WAF_SOLUTION['captcha_voucher']
+    assert r['existing_token'] == AMAZON_WAF_SOLUTION['existing_token']

@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-01
+
+### Added
+
+- **AWS WAF CAPTCHA support** via `amazon_waf(sitekey, iv=None, context=None,
+  url=None, **kwargs)` on both `CapSkip` and `AsyncCapSkip`. The argument order
+  is 2Captcha's, so code written against it keeps working, but only `sitekey`
+  and `url` are required: on a challenge page `iv` and `context` may be left out
+  and CapSkip reads them from the page at solve time. Optional
+  `challenge_script` and `captcha_script` take the page's challenge.js and
+  captcha.js URLs; `jsapiScript` takes a widget page's jsapi.js URL.
+  The answer is a pair, not a token: the result expands into `captcha_voucher`
+  and `existing_token`, which the site's own `voucher` endpoint trades for the
+  `aws-waf-token` cookie. `code` keeps the raw answer.
+- Parameter aliases `challengeScript` for `challenge_script`, `captchaScript` for
+  `captcha_script`, and `jsapi_script` for `jsapiScript`.
+
+### Notes
+
+- Refused locally, before a round-trip: an `iv` without `context` or the other
+  way round, a `pageurl` that is not http(s), and any script URL that is not
+  https on an awswaf.com host. CapSkip POSTs the answer to the host those
+  scripts name, so it refuses any other.
+- AWS WAF uses `recaptchaTimeout`: a real browser mints the token the voucher is
+  issued for.
+
 ## [1.3.0] - 2026-09-22
 
 ### Added

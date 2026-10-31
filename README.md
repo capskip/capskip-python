@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://github.com/capskip/capskip-python/actions/workflows/ci.yml/badge.svg)](https://github.com/capskip/capskip-python/actions/workflows/ci.yml)
 
-**Solve reCAPTCHA v2, reCAPTCHA v3, Cloudflare Turnstile, GeeTest, ALTCHA, Capy Puzzle, CaptchaFox, Friendly Captcha and image captchas from Python.**
+**Solve reCAPTCHA v2, reCAPTCHA v3, Cloudflare Turnstile, GeeTest, ALTCHA, Capy Puzzle, CaptchaFox, Friendly Captcha, AWS WAF and image captchas from Python.**
 
 Official Python client for [CapSkip](https://capskip.com), a **local captcha solver** that runs on your own machine. Licensed once, not billed per solve.
 
@@ -19,7 +19,7 @@ pip install capskip
 
 CapSkip is a desktop app. It does the solving on your machine and exposes the standard captcha-solver HTTP API — the same `in.php` / `res.php` endpoints every 2captcha-compatible client already speaks — on `127.0.0.1:8080`.
 
-This SDK is a thin wrapper over that API, with the method names you would expect: `normal()`, `recaptcha()`, `turnstile()`, `geetest()`, `altcha()`, `capy()`, `captchafox()`, `friendly_captcha()`. Nothing leaves your network, and there is no credit balance to keep an eye on.
+This SDK is a thin wrapper over that API, with the method names you would expect: `normal()`, `recaptcha()`, `turnstile()`, `geetest()`, `altcha()`, `capy()`, `captchafox()`, `friendly_captcha()`, `amazon_waf()`. Nothing leaves your network, and there is no credit balance to keep an eye on.
 
 ## Supported captcha types
 
@@ -38,6 +38,7 @@ This SDK is a thin wrapper over that API, with the method names you would expect
 | **Capy Puzzle solver** (slide puzzle) | `solver.capy(sitekey, url)` |
 | **CaptchaFox solver** (widget) | `solver.captchafox(sitekey, url)` |
 | **Friendly Captcha solver** (proof-of-work) | `solver.friendly_captcha(sitekey, url, version="v2")` |
+| **AWS WAF CAPTCHA solver** (Amazon WAF) | `solver.amazon_waf(sitekey, iv, context, url)` |
 
 **hCaptcha and FunCaptcha/Arkose are not supported.** hCaptcha is the one people misidentify most often, since it also puts a `data-sitekey` on the widget — check for `class="h-captcha"` or a `js.hcaptcha.com` script before reaching for `recaptcha()`.
 
@@ -131,7 +132,7 @@ solver = CapSkip(
     port=8080,               # CapSkip port from app settings
     defaultTimeout=120,      # seconds — image captcha and Capy polling timeout
     recaptchaTimeout=300,    # seconds — reCAPTCHA / Turnstile / GeeTest / CaptchaFox /
-                             # Friendly Captcha polling timeout
+                             # Friendly Captcha / AWS WAF polling timeout
                              # (ALTCHA and Capy use defaultTimeout — neither is a browser solve)
     pollingInterval=5,       # max seconds between res.php polls (starts at 0.25s, backs off to this)
 )
@@ -316,6 +317,51 @@ a script URL, v1 is assumed. Pass `api_server="eu"` for a sitekey on the EU
 data-residency tenant. A v2 token is roughly six kilobytes, so size whatever
 carries it accordingly.
 
+### AWS WAF
+
+AWS WAF CAPTCHA is the puzzle Amazon's firewall shows when it wants proof that a
+visitor is human. The arguments follow 2Captcha's `amazon_waf(sitekey, iv,
+context, url)`, but only `sitekey` and `url` are required.
+
+```python
+# A challenge page: the HTTP 405 page carrying window.gokuProps
+result = solver.amazon_waf(
+    sitekey="AQIDAHjcYu...",          # gokuProps.key
+    iv="CgAFRDIjfgAAA5yY",            # gokuProps.iv
+    context="Rbp3r8fvbuhmrCqp...",    # gokuProps.context
+    url="https://www.example.com/",
+    challenge_script="https://3f2a9c7d41b0.edge.sdk.awswaf.com/3f2a9c7d41b0/8e51d0c7a2f4/challenge.js",
+)
+
+# A widget page: AwsWafCaptcha.renderCaptcha with an apiKey, no gokuProps
+result = solver.amazon_waf(
+    sitekey="Xr9kEXAMPLE...=_0_1",    # the widget's apiKey
+    url="https://www.example.com/contact",
+    jsapiScript="https://5b7e0a19c3d8.us-east-1.captcha-sdk.awswaf.com/5b7e0a19c3d8/jsapi.js",
+)
+
+result["captcha_voucher"], result["existing_token"]
+```
+
+`iv` and `context` travel together: send both or neither. Left out, CapSkip
+reads them from `url` at solve time, which is the safer choice when your copy of
+the page is more than a few minutes old. Every script URL has to be an https
+URL on an awswaf.com host; anything else is refused before the request is sent.
+
+The answer is a pair, not the cookie itself. POST it as JSON to the `voucher`
+endpoint in the same folder as the page's challenge.js, and the response's
+`token` is the `aws-waf-token` cookie to send with your next request:
+
+```python
+voucher_url = challenge_script.rsplit("/", 1)[0] + "/voucher"
+token = requests.post(voucher_url, json={
+    "captcha_voucher": result["captcha_voucher"],
+    "existing_token": result["existing_token"],
+}).json()["token"]
+```
+
+Exchange the pair as soon as it arrives rather than storing it for later.
+
 ### With a proxy (every method except image captcha)
 
 ```python
@@ -408,7 +454,8 @@ GeeTest additionally expands its answer into `challenge`, `validate`, and
 string as `code`) and `number`, the counter that solved it. CaptchaFox and
 Friendly Captcha add `token`, the same string as `code`. Capy expands its answer
 into `captchakey`, `challengekey` and `answer` — it returns an object rather than
-a token, and `code` keeps the raw answer.
+a token, and `code` keeps the raw answer. AWS WAF does the same with its pair,
+`captcha_voucher` and `existing_token`.
 
 ---
 
@@ -435,7 +482,7 @@ except TimeoutException:
 
 ### How do I solve a captcha in Python?
 
-Install the CapSkip desktop app, `pip install capskip`, then call the method that matches the widget — `recaptcha()`, `turnstile()`, `geetest()`, `altcha()`, `capy()`, `captchafox()`, `friendly_captcha()` or `normal()`. Each one polls until CapSkip has an answer, then returns a token, or the recognized text in the case of an image captcha.
+Install the CapSkip desktop app, `pip install capskip`, then call the method that matches the widget — `recaptcha()`, `turnstile()`, `geetest()`, `altcha()`, `capy()`, `captchafox()`, `friendly_captcha()`, `amazon_waf()` or `normal()`. Each one polls until CapSkip has an answer, then returns a token, or the recognized text in the case of an image captcha.
 
 ### Is this a free captcha solver?
 
@@ -443,7 +490,7 @@ The SDK itself is MIT-licensed and free. Solving needs the CapSkip app, which is
 
 ### Which captchas can it solve?
 
-reCAPTCHA v2 (checkbox and invisible), reCAPTCHA v3, reCAPTCHA Enterprise, Cloudflare Turnstile, GeeTest v3, ALTCHA, Capy Puzzle, CaptchaFox, Friendly Captcha, and image/text captchas. Not hCaptcha, and not FunCaptcha/Arkose.
+reCAPTCHA v2 (checkbox and invisible), reCAPTCHA v3, reCAPTCHA Enterprise, Cloudflare Turnstile, GeeTest v3, ALTCHA, Capy Puzzle, CaptchaFox, Friendly Captcha, AWS WAF (Amazon WAF), and image/text captchas. Not hCaptcha, and not FunCaptcha/Arkose.
 
 ### Does it work with Selenium and Playwright?
 

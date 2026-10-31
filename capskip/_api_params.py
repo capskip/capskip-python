@@ -1,6 +1,8 @@
 """CapSkip API parameter validation (https://capskip.com/api-docs/)."""
 
 import json
+import re
+from urllib.parse import urlsplit
 
 from .exceptions import ValidationException
 
@@ -46,6 +48,21 @@ FRIENDLY_CAPTCHA_SUBMIT = frozenset({
     'api_server', 'useragent', 'json', 'proxy', 'proxytype',
 })
 
+AMAZON_WAF_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'iv', 'context', 'challenge_script',
+    'captcha_script', 'jsapiScript', 'json', 'proxy', 'proxytype',
+})
+
+# The script parameters of an AWS WAF task. CapSkip POSTs the solution to the
+# host these name, so it refuses any that is not a genuine AWS WAF one.
+AMAZON_WAF_SCRIPTS = ('challenge_script', 'captcha_script', 'jsapiScript')
+
+# The server's own test: one or more [A-Za-z0-9_-] path segments, then one of
+# the three AWS WAF script files.
+_AMAZON_WAF_SCRIPT_PATH = re.compile(
+    r'^(/[A-Za-z0-9_-]+)+/(challenge|captcha|jsapi)\.js$'
+)
+
 # CapSkip solves the puzzle family only. `avatar` is a different challenge behind
 # a different endpoint; the server refuses it at submit time rather than answering
 # it with a puzzle answer, which would bill for a solve the target site rejects.
@@ -80,6 +97,12 @@ _PARAM_ALIASES = {
     'moduleScript': 'module_script',
     'nomoduleScript': 'nomodule_script',
     'noModuleScript': 'nomodule_script',
+    # AWS WAF: the API documents challenge_script / captcha_script in snake case
+    # and jsapiScript in camel case, as 2Captcha does. Accept the other spelling
+    # of each, which is what createTask-style callers arrive with.
+    'challengeScript': 'challenge_script',
+    'captchaScript': 'captcha_script',
+    'jsapi_script': 'jsapiScript',
 }
 
 
@@ -279,6 +302,67 @@ def validate_friendly_captcha_submit(params: dict) -> None:
         )
 
 
+def is_amazon_waf_script_url(url) -> bool:
+    """True for a script URL CapSkip will accept on an AWS WAF task.
+
+    Mirrors the server: https, a host under .awswaf.com, no credentials or
+    explicit port, and a path ending in challenge.js, captcha.js or jsapi.js.
+    The server only applies the check once the task is queued, so failing here
+    saves a submit that could never solve.
+    """
+    try:
+        parts = urlsplit(str(url).strip())
+        port = parts.port
+    except ValueError:
+        return False
+    host = (parts.hostname or '').lower()
+    return (
+        parts.scheme.lower() == 'https'
+        and host.endswith('.awswaf.com')
+        and parts.username is None
+        and parts.password is None
+        and port in (None, 443)
+        and bool(_AMAZON_WAF_SCRIPT_PATH.match(parts.path))
+    )
+
+
+def validate_amazon_waf_submit(params: dict) -> None:
+    # Without sitekey the server answers ERROR_BAD_PARAMETERS and without
+    # pageurl ERROR_PAGEURL. Fail locally so a missing value costs no round-trip.
+    for key in ('sitekey', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for Amazon WAF.")
+
+    pageurl = str(params['pageurl']).strip()
+    if urlsplit(pageurl).scheme.lower() not in ('http', 'https') or '://' not in pageurl:
+        raise ValidationException(
+            f"'pageurl' must be a full http or https URL for Amazon WAF, got {pageurl!r}."
+        )
+
+    # iv and context come off the same challenge page and only work as a pair;
+    # the server refuses one without the other with ERROR_BAD_PARAMETERS.
+    if bool(params.get('iv')) != bool(params.get('context')):
+        raise ValidationException(
+            "Amazon WAF 'iv' and 'context' go together: send both (a challenge "
+            "page) or neither (a widget page, or let CapSkip read them from pageurl)."
+        )
+
+    for key in AMAZON_WAF_SCRIPTS:
+        value = params.get(key)
+        if value and not is_amazon_waf_script_url(value):
+            raise ValidationException(
+                f"{key!r} must be the https URL of an AWS WAF script on an "
+                f"awswaf.com host (challenge.js, captcha.js or jsapi.js), got {value!r}. "
+                f"CapSkip refuses any other script, because it is not an AWS WAF integration."
+            )
+
+    unknown = _unknown_keys(params, AMAZON_WAF_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for Amazon WAF: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -314,6 +398,11 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
     elif captcha_type == 'friendly_captcha':
         params = drop_unset(params)
         validate_friendly_captcha_submit(params)
+    elif captcha_type == 'amazon_waf':
+        # An optional left as '' means "not sent" to the server, exactly like
+        # None, so it is dropped rather than tripping the iv/context pairing.
+        params = {k: v for k, v in drop_unset(params).items() if v != ''}
+        validate_amazon_waf_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

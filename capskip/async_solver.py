@@ -11,6 +11,7 @@ from .exceptions import NetworkException, TimeoutException, ValidationException,
 from .solver import (
     INITIAL_POLLING_INTERVAL,
     _apply_altcha_solution,
+    _apply_amazon_waf_solution,
     _apply_capy_solution,
     _apply_geetest_solution,
     _apply_poll_result,
@@ -224,6 +225,32 @@ class AsyncCapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_token_solution(await self.solve(**params))
 
+    async def amazon_waf(self, sitekey, iv=None, context=None, url=None, **kwargs):
+        """Solve an AWS WAF (Amazon WAF) CAPTCHA.
+
+        The arguments follow 2Captcha's `amazon_waf(sitekey, iv, context, url)`,
+        but only `sitekey` and `url` are required here. On a challenge page
+        `sitekey`, `iv` and `context` are `gokuProps.key`, `.iv` and `.context`
+        (send iv and context both or neither); on a widget page `sitekey` is the
+        widget's `apiKey` and `jsapiScript` the full URL of jsapi.js. See
+        `CapSkip.amazon_waf` for the details.
+
+        The result carries `captcha_voucher` and `existing_token`, which only
+        work as a pair, plus the raw answer as `code`.
+        """
+        params = {
+            'sitekey': sitekey,
+            'iv': iv,
+            'context': context,
+            'url': url,
+            'method': 'amazon_waf',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # A real browser solve, so the longer of the two timeouts.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_amazon_waf_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -292,4 +319,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'captchafox')
         if method == 'friendly_captcha':
             return prepare_submit_params(params, 'friendly_captcha')
+        if method == 'amazon_waf':
+            return prepare_submit_params(params, 'amazon_waf')
         return apply_proxy(apply_param_aliases(params))

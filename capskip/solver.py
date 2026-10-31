@@ -164,8 +164,8 @@ def _apply_altcha_solution(result: dict) -> dict:
 _CAPY_FIELDS = ('captchakey', 'challengekey', 'answer', 'respKey')
 
 
-def _apply_capy_solution(result: dict) -> dict:
-    """Expand the Capy answer into `captchakey` / `challengekey` / `answer`.
+def _expand_object_answer(result: dict, fields) -> dict:
+    """Copy `fields` out of an answer that is an object rather than a token.
 
     `code` keeps the raw answer -- a dict when polled with json=1, where the
     server puts the object straight into `request`, or the JSON string it sends
@@ -190,11 +190,27 @@ def _apply_capy_solution(result: dict) -> dict:
     if not isinstance(payload, dict):
         return result
 
-    for field in _CAPY_FIELDS:
+    for field in fields:
         if field in payload:
             result[field] = payload[field]
 
     return result
+
+
+def _apply_capy_solution(result: dict) -> dict:
+    """Expand the Capy answer into `captchakey` / `challengekey` / `answer`."""
+    return _expand_object_answer(result, _CAPY_FIELDS)
+
+
+# An AWS WAF solution is two values that only work as a pair: the voucher AWS
+# issued for the answered puzzle, and the token it was issued for. The site's
+# own /voucher endpoint trades them for the aws-waf-token cookie.
+_AMAZON_WAF_FIELDS = ('captcha_voucher', 'existing_token')
+
+
+def _apply_amazon_waf_solution(result: dict) -> dict:
+    """Expand the AWS WAF answer into `captcha_voucher` / `existing_token`."""
+    return _expand_object_answer(result, _AMAZON_WAF_FIELDS)
 
 
 def _apply_token_solution(result: dict) -> dict:
@@ -438,6 +454,47 @@ class CapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_token_solution(self.solve(**params))
 
+    def amazon_waf(self, sitekey, iv=None, context=None, url=None, **kwargs):
+        """Solve an AWS WAF (Amazon WAF) CAPTCHA.
+
+        The arguments follow 2Captcha's `amazon_waf(sitekey, iv, context, url)`,
+        but only `sitekey` and `url` are required here:
+
+        * On a challenge page (the HTTP 405 page with `window.gokuProps`),
+          `sitekey` is `gokuProps.key`, and `iv` and `context` are
+          `gokuProps.iv` and `gokuProps.context`. Send both or neither -- left
+          out, CapSkip reads them from `url` at solve time, which is the safer
+          choice when your copy of the page is more than a few minutes old.
+          `challenge_script` and `captcha_script` are the full URLs of the
+          page's challenge.js and captcha.js.
+        * On a widget page (`AwsWafCaptcha.renderCaptcha`), `sitekey` is the
+          widget's `apiKey`; pass `jsapiScript` with the full URL of jsapi.js
+          and no `iv` / `context`.
+
+        Every script URL must be an https URL on an awswaf.com host; anything
+        else is refused before the request is sent.
+
+        The result carries `captcha_voucher` and `existing_token`, plus the raw
+        answer as `code`. The two only work as a pair: POST them as JSON to the
+        `voucher` endpoint next to the page's challenge.js and the response's
+        `token` is the aws-waf-token cookie. Exchange them as soon as they
+        arrive rather than storing them for later.
+        """
+        params = {
+            'sitekey': sitekey,
+            'iv': iv,
+            'context': context,
+            'url': url,
+            'method': 'amazon_waf',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # A real browser mints the token the voucher is issued for, and the
+        # puzzle rounds go through AWS on top of that, so it gets the longer of
+        # the two timeouts unless the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_amazon_waf_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -504,4 +561,6 @@ class CapSkip:
             return prepare_submit_params(params, 'captchafox')
         if method == 'friendly_captcha':
             return prepare_submit_params(params, 'friendly_captcha')
+        if method == 'amazon_waf':
+            return prepare_submit_params(params, 'amazon_waf')
         return apply_proxy(apply_param_aliases(params))

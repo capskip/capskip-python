@@ -51,6 +51,15 @@ FRIENDLY_CAPTCHA_TOKEN = (
     'AAAAAArcCQABAAAAxv8QAAIAAACKYRgA.AgAB'
 )
 
+# An AWS WAF answer is two values that only work as a pair, so like Capy's it is
+# an object: json=1 puts it straight into `request`, and plain text sends it as
+# one line of JSON after OK|. The shapes follow what AWS really issues -- a
+# dotted voucher, and a token of three colon-separated parts.
+AMAZON_WAF_SOLUTION = {
+    'captcha_voucher': 'eyJ2b3VjaGVyIjoiRVhBTVBMRSJ9.9QwZcEXAMPLEvoucherJk4LmN0pQ',
+    'existing_token': '7d4c2a91-EXAMPLE-4f0b-9e6d-3a1b5c8e2f70:EQoAeXAMPLEtokenAAAA:Wm9wc2E=',
+}
+
 
 def _png_bytes():
     def chunk(tag, data):
@@ -167,6 +176,16 @@ def _make_handler():
                     }), 'application/json')
                 else:
                     self._send('OK|' + json.dumps(CAPY_SOLUTION))
+            elif id_type.get(cid) == 'amazon_waf':
+                # What CapSkip sends: the bare status/request pair, with the
+                # two-value object as `request` -- no createTask `solution`.
+                if want_json:
+                    self._send(json.dumps({
+                        'status': 1,
+                        'request': AMAZON_WAF_SOLUTION,
+                    }), 'application/json')
+                else:
+                    self._send('OK|' + json.dumps(AMAZON_WAF_SOLUTION))
             elif id_type.get(cid) == 'captchafox':
                 # The UA is the browser's own, and CapSkip reports it at the top
                 # level and inside solution both.

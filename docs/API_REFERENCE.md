@@ -26,6 +26,7 @@ The SDK only supports the captcha types documented by CapSkip.
 | Capy Puzzle (slide) | `capy()` | `capy` |
 | CaptchaFox (widget) | `captchafox()` | `captchafox` |
 | Friendly Captcha (proof-of-work) | `friendly_captcha()` | `friendly_captcha` |
+| AWS WAF CAPTCHA (Amazon WAF) | `amazon_waf()` | `amazon_waf` |
 
 **Proxy** is supported for every method except image captcha. For ALTCHA the
 proxy is used only for the `challenge_url` fetch; for Capy, only for the
@@ -610,6 +611,89 @@ browser.
 
 ---
 
+## 10. AWS WAF — `amazon_waf(sitekey, iv=None, context=None, url=None, ...)`
+
+AWS WAF CAPTCHA is the puzzle Amazon Web Services shows when a site's firewall
+wants proof that a visitor is human: usually a 3 x 3 grid of pictures, sometimes
+a toy car to steer along a path. AWS WAF decides which; you do not have to say.
+Public docs: <https://capskip.com/api-docs/#aws-waf>.
+
+The arguments follow 2Captcha's `amazon_waf(sitekey, iv, context, url)`, so code
+written against it keeps working, but only `sitekey` and `url` are required.
+
+### POST `/in.php`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | Yes | CapSkip API key |
+| `method` | string | Yes | `amazon_waf` |
+| `sitekey` | string | Yes | `gokuProps.key` of a challenge page, or the widget's `apiKey` |
+| `pageurl` | string | Yes | Full http or https URL of the protected page |
+| `iv` | string | No | `gokuProps.iv`. Send together with `context`, or leave both out |
+| `context` | string | No | `gokuProps.context`. Send together with `iv`, or leave both out |
+| `challenge_script` | string | No | Full URL of the page's challenge.js |
+| `captcha_script` | string | No | Full URL of the page's captcha.js |
+| `jsapiScript` | string | No | Widget pages only: full URL of jsapi.js |
+| `json` | int | No | `0` plain text, `1` JSON |
+| `proxy` | string | No | Proxy address |
+| `proxytype` | string | No | Proxy type |
+
+Refused by the SDK before the request is made, as the server would refuse them:
+a missing `sitekey` or `pageurl`, a `pageurl` that is not http(s), an `iv`
+without `context` (or the other way round), and any script URL that is not
+https on an awswaf.com host ending in challenge.js, captcha.js or jsapi.js.
+
+### Challenge page or widget page
+
+- **Challenge page.** The firewall answers with HTTP 405 and a small page
+  carrying `window.gokuProps` and loading challenge.js and captcha.js from an
+  awswaf.com host. Send `gokuProps.key` as `sitekey`, plus `iv` and `context`,
+  and optionally the two script URLs. Any of those you leave out is read from
+  `pageurl` at solve time, which is the safer choice when your copy of the page
+  is more than a few minutes old.
+- **Widget page.** An ordinary page loads jsapi.js and draws the puzzle with
+  `AwsWafCaptcha.renderCaptcha`. Send its `apiKey` as `sitekey` and the jsapi.js
+  URL as `jsapiScript`, with no `iv` or `context`.
+
+### GET `/res.php`
+
+The answer is **two values**, so like Capy's it is an object. The SDK expands it
+into `captcha_voucher` and `existing_token`. See [Return value](#return-value).
+
+### SDK usage
+
+```python
+# Challenge page, 2Captcha's argument order
+result = solver.amazon_waf(sitekey, iv, context, "https://www.example.com/",
+                           challenge_script=challenge_js)
+
+# Let CapSkip read iv and context off the page itself
+result = solver.amazon_waf(sitekey, url="https://www.example.com/")
+
+# Widget page
+result = solver.amazon_waf(
+    sitekey=api_key,
+    url="https://www.example.com/contact",
+    jsapiScript="https://5b7e0a19c3d8.us-east-1.captcha-sdk.awswaf.com/5b7e0a19c3d8/jsapi.js",
+)
+
+result["captcha_voucher"], result["existing_token"]
+```
+
+### Turning the voucher into the cookie
+
+The pair only works together. POST it as JSON to `voucher` in the same folder as
+the page's challenge.js (on a widget page, jsapi.js loads a challenge.js for
+you; find it in the Network tab). The response's `token` field is the
+`aws-waf-token`: send it as that cookie on the protected domain, or in an
+`x-aws-waf-token` header if that is what the page's own requests do. Exchange
+the pair as soon as it arrives rather than storing it for later.
+
+Uses `recaptchaTimeout`: a real browser mints the token the voucher is issued
+for, and the puzzle rounds go through AWS on top of that.
+
+---
+
 ## Return value
 
 Every solve method returns:
@@ -661,6 +745,18 @@ target form takes (`code` keeps the raw answer):
 }
 ```
 
+AWS WAF returns an object too, expanded into the pair the `voucher` endpoint
+takes (`code` keeps the raw answer):
+
+```python
+{
+    "captchaId": "12345",
+    "code": {"captcha_voucher": "…", "existing_token": "…"},
+    "captcha_voucher": "eyJ2b3VjaGVyIjoiRVhBTVBMRSJ9.9QwZcEXAMPLEvoucherJk4LmN0pQ",
+    "existing_token": "7d4c2a91-EXAMPLE-4f0b-9e6d-3a1b5c8e2f70:EQoAeXAMPLEtokenAAAA:Wm9wc2E=",
+}
+```
+
 GeeTest additionally expands its answer into `challenge`, `validate`, and
 `seccode` (`code` keeps the raw JSON string):
 
@@ -695,6 +791,9 @@ Convenience aliases mapped before sending to CapSkip:
 | `captchaKey` | `captchakey` |
 | `moduleScript` | `module_script` |
 | `nomoduleScript` / `noModuleScript` | `nomodule_script` |
+| `challengeScript` | `challenge_script` |
+| `captchaScript` | `captcha_script` |
+| `jsapi_script` | `jsapiScript` |
 | `proxy` dict | `proxy` + `proxytype` strings |
 
 ```python

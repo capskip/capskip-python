@@ -14,11 +14,13 @@ try:
     from .conftest import (
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
+        DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
     )
 except ImportError:
     from conftest import (
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
+        DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
     )
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
@@ -386,3 +388,50 @@ async def test_async_amazon_waf(async_solver):
     r = await async_solver.amazon_waf(WAF_KEY, WAF_IV, WAF_CONTEXT, URL)
     assert r['captcha_voucher'] == AMAZON_WAF_SOLUTION['captcha_voucher']
     assert r['existing_token'] == AMAZON_WAF_SOLUTION['existing_token']
+
+
+# -- DataDome -------------------------------------------------------------
+
+DD_PAGE = 'https://www.example.com/'
+DD_CAPTCHA_URL = (
+    'https://geo.captcha-delivery.com/captcha/?initialCid=AHrlqAAAAAMA7KBvCr0n4cEAG330MA%3D%3D'
+    '&hash=D013AA612AB2224D03B2318D0F5B19&cid=KzE6_pZBBTHdCdvZkauT9VAshi0wS7~v5_M_MacEtdw8'
+    '&t=fe&referer=https%3A%2F%2Fwww.example.com%2F&s=45225&e=549255a0289eaf17af60822309ab8db4&dm=cd'
+)
+DD_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/156.0.0.1 Safari/537.36'
+)
+
+
+def test_datadome_without_proxy_reports_the_list_proxy(solver):
+    """No proxy sent: CapSkip solved through its own DataDome list, so the
+    result names that proxy and the browser's User-Agent."""
+    r = solver.datadome(DD_CAPTCHA_URL, DD_PAGE)
+    assert r['code'] == DATADOME_COOKIE
+    assert r['cookie'] == DATADOME_COOKIE.split(';')[0]
+    assert r['userAgent'] == DATADOME_BROWSER_USER_AGENT
+    assert r['proxy'] == DATADOME_LIST_PROXY
+
+
+def test_datadome_with_own_proxy_and_user_agent(solver):
+    """A proxy sent with the task: no `proxy` comes back, and the User-Agent is
+    the one sent -- it crossed the wire intact, ~ ; ( ) and all."""
+    r = solver.datadome(DD_CAPTCHA_URL, DD_PAGE, DD_USER_AGENT,
+                        {'type': 'HTTP', 'uri': 'login:p%40ss@203.0.113.7:3128'})
+    assert r['cookie'] == DATADOME_COOKIE.split(';')[0]
+    assert r['userAgent'] == DD_USER_AGENT
+    assert 'proxy' not in r
+
+
+def test_datadome_banned_block_page_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.datadome(DD_CAPTCHA_URL.replace('t=fe', 't=bv'), DD_PAGE)
+
+
+@pytest.mark.asyncio
+async def test_async_datadome(async_solver):
+    r = await async_solver.datadome(DD_CAPTCHA_URL, DD_PAGE)
+    assert r['cookie'] == DATADOME_COOKIE.split(';')[0]
+    assert r['userAgent'] == DATADOME_BROWSER_USER_AGENT
+    assert r['proxy'] == DATADOME_LIST_PROXY

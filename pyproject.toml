@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capskip"
-version = "1.4.0"
+version = "1.5.0"
 description = "Captcha solver for Python: solve reCAPTCHA v2/v3, Cloudflare Turnstile, GeeTest and image captchas with CapSkip, a local unlimited captcha solver with no per-solve fees."
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,6 +30,8 @@ keywords = [
     "geetest-solver",
     "aws-waf",
     "aws-waf-captcha",
+    "datadome",
+    "datadome-captcha",
     "image-captcha",
     "ocr",
     "2captcha-alternative",

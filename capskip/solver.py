@@ -58,6 +58,12 @@ def _apply_poll_result(result: dict, polled) -> dict:
         user_agent = polled.get('useragent') or polled.get('userAgent')
         if user_agent:
             result['userAgent'] = user_agent
+        # DataDome names the proxy a task was solved through when the task sent
+        # none and CapSkip took one from its own DataDome proxy list. The cookie
+        # only works from that address, so it is reported rather than dropped.
+        proxy = polled.get('proxy')
+        if proxy:
+            result['proxy'] = proxy
         # ALTCHA's createTask-shaped `solution` object. Carried through so
         # _apply_altcha_solution can read the counter the server already worked
         # out, which is the only reliable source for a proof-of-work v2 answer;
@@ -211,6 +217,22 @@ _AMAZON_WAF_FIELDS = ('captcha_voucher', 'existing_token')
 def _apply_amazon_waf_solution(result: dict) -> dict:
     """Expand the AWS WAF answer into `captcha_voucher` / `existing_token`."""
     return _expand_object_answer(result, _AMAZON_WAF_FIELDS)
+
+
+def _apply_datadome_solution(result: dict) -> dict:
+    """Expose the DataDome cookie as `cookie`, ready for a Cookie header.
+
+    `code` keeps the cookie exactly as DataDome set it, attributes included
+    (`datadome=...; Max-Age=...; Domain=...; Path=/; Secure; SameSite=Lax`),
+    for a cookie jar. `cookie` is the part before the first semicolon, the
+    `datadome=...` pair a request sends back. `userAgent` and, when CapSkip
+    picked the proxy, `proxy` are carried through from the poll as they are.
+    An answer that is not a string is left untouched.
+    """
+    code = result.get('code')
+    if isinstance(code, str) and code:
+        result['cookie'] = code.split(';', 1)[0].strip()
+    return result
 
 
 def _apply_token_solution(result: dict) -> dict:
@@ -495,6 +517,52 @@ class CapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_amazon_waf_solution(self.solve(**params))
 
+    def datadome(self, captcha_url, pageurl=None, userAgent=None, proxy=None, **kwargs):
+        """Solve a DataDome challenge and return the `datadome` cookie.
+
+        The arguments follow 2Captcha's `datadome(captcha_url, pageurl,
+        userAgent, proxy)`; `url` is accepted for `pageurl` as on every other
+        method. `userAgent` and `proxy` are optional here:
+
+        * `captcha_url` is the address of the challenge iframe on
+          geo.captcha-delivery.com, under /captcha/ (slider) or /interstitial/
+          (device check). Take the iframe's src from the block page, or build
+          it from the page's `var dd` object as the API docs show.
+        * `pageurl` is the page that returned the block page.
+        * `userAgent` is the one you will send with the cookie. It must be
+          Chrome for Windows with the same major version as the browser CapSkip
+          solves with; leave it out and CapSkip uses that browser's own.
+        * `proxy` is the proxy your later requests go through, as a URI string
+          or `{'type': 'HTTP', 'uri': 'login:password@IP:PORT'}`.
+
+        DataDome ties the cookie to the IP address and User-Agent that earned
+        it. The result carries:
+
+        * `code` -- the cookie exactly as DataDome set it, attributes included;
+        * `cookie` -- just the `datadome=...` pair, for a Cookie header;
+        * `userAgent` -- the User-Agent the cookie was earned with. Send it
+          with every request that carries the cookie;
+        * `proxy` -- present only when you sent no proxy and CapSkip solved
+          through its own DataDome proxy list: that proxy as `host:port`. The
+          cookie works only through it.
+        """
+        params = {
+            'captcha_url': captcha_url,
+            'pageurl': pageurl,
+            'userAgent': userAgent,
+            'proxy': proxy,
+            'method': 'datadome',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        # Drop the unset ones here, so `url=` can stand in for `pageurl` without
+        # tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # A real browser session, slider or device check, so it gets the longer
+        # of the two timeouts unless the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_datadome_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -563,4 +631,6 @@ class CapSkip:
             return prepare_submit_params(params, 'friendly_captcha')
         if method == 'amazon_waf':
             return prepare_submit_params(params, 'amazon_waf')
+        if method == 'datadome':
+            return prepare_submit_params(params, 'datadome')
         return apply_proxy(apply_param_aliases(params))

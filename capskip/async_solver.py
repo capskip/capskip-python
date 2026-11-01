@@ -13,6 +13,7 @@ from .solver import (
     _apply_altcha_solution,
     _apply_amazon_waf_solution,
     _apply_capy_solution,
+    _apply_datadome_solution,
     _apply_geetest_solution,
     _apply_poll_result,
     _apply_token_solution,
@@ -251,6 +252,31 @@ class AsyncCapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_amazon_waf_solution(await self.solve(**params))
 
+    async def datadome(self, captcha_url, pageurl=None, userAgent=None, proxy=None, **kwargs):
+        """Solve a DataDome challenge and return the `datadome` cookie.
+
+        The arguments follow 2Captcha's `datadome(captcha_url, pageurl,
+        userAgent, proxy)`, with `userAgent` and `proxy` optional. See
+        `CapSkip.datadome` for the details.
+
+        The result carries the cookie as set (`code`), the `datadome=...` pair
+        alone (`cookie`), the User-Agent it was earned with (`userAgent`), and
+        `proxy` when CapSkip solved through its own DataDome proxy list.
+        """
+        params = {
+            'captcha_url': captcha_url,
+            'pageurl': pageurl,
+            'userAgent': userAgent,
+            'proxy': proxy,
+            'method': 'datadome',
+            'poll_json': 1,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+        # A real browser session, so the longer of the two timeouts.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_datadome_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -321,4 +347,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'friendly_captcha')
         if method == 'amazon_waf':
             return prepare_submit_params(params, 'amazon_waf')
+        if method == 'datadome':
+            return prepare_submit_params(params, 'datadome')
         return apply_proxy(apply_param_aliases(params))

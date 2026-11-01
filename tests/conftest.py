@@ -60,6 +60,21 @@ AMAZON_WAF_SOLUTION = {
     'existing_token': '7d4c2a91-EXAMPLE-4f0b-9e6d-3a1b5c8e2f70:EQoAeXAMPLEtokenAAAA:Wm9wc2E=',
 }
 
+# DataDome answers with a cookie, not a token: the Set-Cookie value exactly as
+# DataDome set it, attributes included. Next to it CapSkip names the User-Agent
+# the cookie was earned with (the caller's, or its own browser's when the task
+# sent none) and, only when the task sent no proxy and the app's DataDome proxy
+# list supplied one, that proxy as host:port.
+DATADOME_COOKIE = (
+    'datadome=FAPPpli4jkT1MZGtgF8ez7mjSz8MrJ9fGRNE51Gj79cq9fXp5xn~F1P5APWjqvJojf4U9dq0R81Xaj2hpYtjle95mkg; '
+    'Max-Age=31536000; Domain=.example.com; Path=/; Secure; SameSite=Lax'
+)
+DATADOME_BROWSER_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36'
+)
+DATADOME_LIST_PROXY = '203.0.113.10:8080'
+
 
 def _png_bytes():
     def chunk(tag, data):
@@ -78,6 +93,7 @@ PNG = _png_bytes()
 def _make_handler():
     ids = itertools.count(1)
     id_type = {}
+    id_fields = {}
     poll_count = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -130,6 +146,7 @@ def _make_handler():
             else:
                 cid = str(next(ids))
             id_type[cid] = fields.get('method', '')
+            id_fields[cid] = fields
             # in.php returns JSON when the submit carried json=1, mirroring CapSkip.
             if str(fields.get('json')) == '1':
                 self._send('{"status":1,"request":"' + cid + '"}', 'application/json')
@@ -186,6 +203,22 @@ def _make_handler():
                     }), 'application/json')
                 else:
                     self._send('OK|' + json.dumps(AMAZON_WAF_SOLUTION))
+            elif id_type.get(cid) == 'datadome':
+                # As CapSkip answers: the cookie as `request`, the User-Agent it
+                # was earned with, and `proxy` only when the app's own list
+                # supplied one. Plain text carries the two in response headers.
+                sent = id_fields.get(cid, {})
+                user_agent = (sent.get('userAgent') or sent.get('useragent')
+                              or DATADOME_BROWSER_USER_AGENT)
+                list_proxy = None if sent.get('proxy') else DATADOME_LIST_PROXY
+                if want_json:
+                    reply = {'status': 1, 'request': DATADOME_COOKIE,
+                             'userAgent': user_agent}
+                    if list_proxy:
+                        reply['proxy'] = list_proxy
+                    self._send(json.dumps(reply), 'application/json')
+                else:
+                    self._send('OK|' + DATADOME_COOKIE)
             elif id_type.get(cid) == 'captchafox':
                 # The UA is the browser's own, and CapSkip reports it at the top
                 # level and inside solution both.

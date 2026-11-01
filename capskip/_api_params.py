@@ -1,8 +1,9 @@
 """CapSkip API parameter validation (https://capskip.com/api-docs/)."""
 
+import html
 import json
 import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .exceptions import ValidationException
 
@@ -63,6 +64,29 @@ _AMAZON_WAF_SCRIPT_PATH = re.compile(
     r'^(/[A-Za-z0-9_-]+)+/(challenge|captcha|jsapi)\.js$'
 )
 
+DATADOME_SUBMIT = frozenset({
+    'method', 'captcha_url', 'pageurl', 'useragent', 'json', 'proxy', 'proxytype',
+})
+
+# Every DataDome challenge is served from this domain or a subdomain of it
+# (geo.captcha-delivery.com in practice). CapSkip refuses any other host.
+DATADOME_CHALLENGE_DOMAIN = 'captcha-delivery.com'
+
+# The two challenge pages: /captcha/ draws the slider, /interstitial/ runs the
+# device check. Any other path renders nothing to solve.
+DATADOME_CHALLENGE_PATHS = ('/captcha', '/interstitial')
+
+# A Chrome version as Chrome writes it in its User-Agent: four dotted numbers.
+_CHROME_VERSION = re.compile(r'\bChrome/(\d+)\.\d+\.\d+\.\d+\b')
+
+# Chrome-derived browsers and non-desktop builds. A User-Agent carrying any of
+# these is not stock Windows Chrome, so a cookie earned under it would be
+# refused on replay; the server answers ERROR_WRONG_USERAGENT for each.
+_NOT_STOCK_WINDOWS_CHROME = (
+    'Edg/', 'EdgA/', 'OPR/', 'YaBrowser/', 'SamsungBrowser/', 'Vivaldi/',
+    'HeadlessChrome/', 'CriOS/', 'Mobile', 'Android',
+)
+
 # CapSkip solves the puzzle family only. `avatar` is a different challenge behind
 # a different endpoint; the server refuses it at submit time rather than answering
 # it with a puzzle answer, which would bill for a solve the target site rejects.
@@ -103,6 +127,10 @@ _PARAM_ALIASES = {
     'challengeScript': 'challenge_script',
     'captchaScript': 'captcha_script',
     'jsapi_script': 'jsapiScript',
+    # DataDome: 2Captcha and the API document captcha_url; createTask-style
+    # callers arrive with captchaUrl.
+    'captchaUrl': 'captcha_url',
+    'captchaURL': 'captcha_url',
 }
 
 
@@ -363,6 +391,108 @@ def validate_amazon_waf_submit(params: dict) -> None:
         )
 
 
+def _is_datadome_host(host: str) -> bool:
+    host = (host or '').lower()
+    return host == DATADOME_CHALLENGE_DOMAIN or host.endswith('.' + DATADOME_CHALLENGE_DOMAIN)
+
+
+def parse_datadome_captcha_url(url):
+    """The query of a DataDome challenge URL as a dict, or None if it is not one.
+
+    Mirrors the server: an https URL on captcha-delivery.com (or a subdomain),
+    path /captcha/ or /interstitial/, carrying initialCid, hash and cid. An
+    iframe src copied HTML-escaped (&amp;) and a scheme-relative //geo... URL
+    are both read the way the server reads them.
+    """
+    text = html.unescape(str(url or '').strip())
+    if text.startswith('//'):
+        text = 'https:' + text
+    try:
+        parts = urlsplit(text)
+        parts.port
+    except ValueError:
+        return None
+    if parts.scheme.lower() != 'https' or not _is_datadome_host(parts.hostname):
+        return None
+    if parts.path.rstrip('/').lower() not in DATADOME_CHALLENGE_PATHS:
+        return None
+    query = {k: v[0] for k, v in parse_qs(parts.query).items()}
+    if not all(query.get(k) for k in ('initialCid', 'hash', 'cid')):
+        return None
+    return query
+
+
+def is_datadome_user_agent(user_agent) -> bool:
+    """True for a stock Chrome-for-Windows User-Agent, the only kind CapSkip takes.
+
+    DataDome ties the cookie to the browser that earned it, and CapSkip solves
+    in Chrome on Windows, so a cookie for any other User-Agent would be refused
+    on replay. The server also requires the same Chrome major version as its
+    own browser; that part can only be checked there.
+    """
+    ua = str(user_agent or '')
+    return (
+        'Windows NT ' in ua
+        and _CHROME_VERSION.search(ua) is not None
+        and not any(token in ua for token in _NOT_STOCK_WINDOWS_CHROME)
+    )
+
+
+def validate_datadome_submit(params: dict) -> None:
+    # Without captcha_url the server answers ERROR_BAD_PARAMETERS and without
+    # pageurl ERROR_PAGEURL. Fail locally so a missing value costs no round-trip.
+    for key in ('captcha_url', 'pageurl'):
+        if not params.get(key):
+            raise ValidationException(f"{key!r} is required for DataDome.")
+
+    query = parse_datadome_captcha_url(params['captcha_url'])
+    if query is None:
+        raise ValidationException(
+            "'captcha_url' must be the https address of a DataDome challenge on "
+            "captcha-delivery.com, under /captcha/ or /interstitial/ and carrying "
+            f"initialCid, hash and cid, got {params['captcha_url']!r}. Take it from "
+            "the block page's iframe src, or build it from the page's `var dd` object."
+        )
+    # t=bv is DataDome saying the address that fetched the block page is
+    # banned. Nothing sent from it can pass, and the server refuses the task
+    # with ERROR_PROXY_BANNED, so say so before the round-trip.
+    if query.get('t') == 'bv':
+        raise ValidationException(
+            "This DataDome block page bans the IP address that requested it "
+            "(t=bv), so no solve from that address can pass. Change the address "
+            "(proxy), request the page again and submit the new captcha_url."
+        )
+
+    pageurl = str(params['pageurl']).strip()
+    try:
+        page = urlsplit(pageurl)
+        page.port
+    except ValueError:
+        page = None
+    if (page is None or page.scheme.lower() not in ('http', 'https')
+            or not page.hostname or _is_datadome_host(page.hostname)):
+        raise ValidationException(
+            f"'pageurl' must be the full http or https URL of the page that "
+            f"returned the DataDome block page, got {pageurl!r}."
+        )
+
+    user_agent = params.get('useragent')
+    if user_agent not in (None, '') and not is_datadome_user_agent(user_agent):
+        raise ValidationException(
+            "DataDome 'userAgent' must be a stock Chrome for Windows User-Agent "
+            "with the same major version as the browser CapSkip solves with, got "
+            f"{user_agent!r}. The cookie only works with the User-Agent that "
+            "earned it. Leave it out and CapSkip uses its own browser's, which "
+            "the result reports as `userAgent`."
+        )
+
+    unknown = _unknown_keys(params, DATADOME_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for DataDome: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -403,6 +533,9 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
         # None, so it is dropped rather than tripping the iv/context pairing.
         params = {k: v for k, v in drop_unset(params).items() if v != ''}
         validate_amazon_waf_submit(params)
+    elif captcha_type == 'datadome':
+        params = {k: v for k, v in drop_unset(params).items() if v != ''}
+        validate_datadome_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

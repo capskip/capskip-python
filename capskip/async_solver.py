@@ -15,6 +15,7 @@ from .solver import (
     _apply_capy_solution,
     _apply_datadome_solution,
     _apply_geetest_solution,
+    _apply_hcaptcha_solution,
     _apply_poll_result,
     _apply_token_solution,
     _next_poll_interval,
@@ -277,6 +278,30 @@ class AsyncCapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_datadome_solution(await self.solve(**params))
 
+    async def hcaptcha(self, sitekey, url, **kwargs):
+        """Solve an hCaptcha widget and return its token.
+
+        The arguments follow 2Captcha's `hcaptcha(sitekey, url, **kwargs)`, with
+        `invisible`, `data` (Enterprise rqdata), `userAgent` and `proxy`
+        optional. See `CapSkip.hcaptcha` for the details.
+
+        The result carries the token (`code` and `token`), `respKey`, and the
+        User-Agent the token was earned with (`userAgent`).
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'hcaptcha',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Drop the unset ones here, so `pageurl=` can stand in for `url`
+        # without tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # A real browser session, so the longer of the two timeouts.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_hcaptcha_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -349,4 +374,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'amazon_waf')
         if method == 'datadome':
             return prepare_submit_params(params, 'datadome')
+        if method == 'hcaptcha':
+            return prepare_submit_params(params, 'hcaptcha')
         return apply_proxy(apply_param_aliases(params))

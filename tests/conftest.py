@@ -75,6 +75,16 @@ DATADOME_BROWSER_USER_AGENT = (
 )
 DATADOME_LIST_PROXY = '203.0.113.10:8080'
 
+# hCaptcha, as CapSkip's res.php answers it with json=1: the token as
+# `request`, the widget's respKey, and the UA of the browser that earned it --
+# never the caller's own, so a test can tell the two apart.
+HCAPTCHA_TOKEN = 'P1_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.hadwYXNza2V5xQZ2f3Kq8nV2'
+HCAPTCHA_RESP_KEY = 'E0_eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6IjA09wB1'
+HCAPTCHA_USER_AGENT = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36'
+)
+
 
 def _png_bytes():
     def chunk(tag, data):
@@ -134,6 +144,13 @@ def _make_handler():
 
             if key == 'badkey':
                 self._send('ERROR_WRONG_USER_KEY')
+                return
+
+            # CapSkip reads hCaptcha's invisible as "1" or "true" only; a
+            # Python bool stringified to 'True' would silently mean "visible".
+            # The mock refuses it so the integration test catches the slip.
+            if fields.get('method') == 'hcaptcha' and fields.get('invisible', '1') not in ('1', 'true'):
+                self._send('ERROR_BAD_PARAMETERS')
                 return
 
             pageurl = fields.get('pageurl', '')
@@ -219,6 +236,17 @@ def _make_handler():
                     self._send(json.dumps(reply), 'application/json')
                 else:
                     self._send('OK|' + DATADOME_COOKIE)
+            elif id_type.get(cid) == 'hcaptcha':
+                # Plain text carries the UA in X-HCaptcha-User-Agent instead.
+                if want_json:
+                    self._send(json.dumps({
+                        'status': 1,
+                        'request': HCAPTCHA_TOKEN,
+                        'respKey': HCAPTCHA_RESP_KEY,
+                        'useragent': HCAPTCHA_USER_AGENT,
+                    }), 'application/json')
+                else:
+                    self._send('OK|' + HCAPTCHA_TOKEN)
             elif id_type.get(cid) == 'captchafox':
                 # The UA is the browser's own, and CapSkip reports it at the top
                 # level and inside solution both.

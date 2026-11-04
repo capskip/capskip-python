@@ -15,12 +15,14 @@ try:
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
+        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT,
     )
 except ImportError:
     from conftest import (
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
+        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT,
     )
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
@@ -435,3 +437,42 @@ async def test_async_datadome(async_solver):
     assert r['cookie'] == DATADOME_COOKIE.split(';')[0]
     assert r['userAgent'] == DATADOME_BROWSER_USER_AGENT
     assert r['proxy'] == DATADOME_LIST_PROXY
+
+
+# -- hCaptcha -------------------------------------------------------------
+
+HC_SITEKEY = 'a5f74b19-9e45-40e0-b45d-47ff91b7a6c2'
+HC_PAGE = 'https://accounts.hcaptcha.com/demo'
+
+
+def test_hcaptcha(solver):
+    r = solver.hcaptcha(HC_SITEKEY, HC_PAGE)
+    assert r['captchaId']
+    assert r['code'] == HCAPTCHA_TOKEN
+    assert r['token'] == HCAPTCHA_TOKEN
+    assert r['respKey'] == HCAPTCHA_RESP_KEY
+    assert r['userAgent'] == HCAPTCHA_USER_AGENT
+
+
+def test_hcaptcha_with_every_option(solver):
+    # invisible=True has to cross the wire as 1: the mock, like CapSkip,
+    # refuses anything else. rqdata carries + and /, which must survive.
+    r = solver.hcaptcha(HC_SITEKEY, HC_PAGE, invisible=True,
+                        data='Wk2qT7bX+fV9rL0pZ3mN8cJ1hYsD6uE4gA5oR2iK/0=',
+                        userAgent='Mozilla/5.0 (caller)',
+                        proxy={'type': 'SOCKS5H', 'uri': 'login:p%40ss@203.0.113.7:1080'})
+    assert r['token'] == HCAPTCHA_TOKEN
+    assert r['respKey'] == HCAPTCHA_RESP_KEY
+
+
+def test_hcaptcha_bad_pageurl_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.hcaptcha(HC_SITEKEY, 'accounts.hcaptcha.com/demo')
+
+
+@pytest.mark.asyncio
+async def test_async_hcaptcha(async_solver):
+    r = await async_solver.hcaptcha(HC_SITEKEY, HC_PAGE, invisible=1)
+    assert r['token'] == HCAPTCHA_TOKEN
+    assert r['respKey'] == HCAPTCHA_RESP_KEY
+    assert r['userAgent'] == HCAPTCHA_USER_AGENT

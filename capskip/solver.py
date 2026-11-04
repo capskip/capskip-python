@@ -64,6 +64,10 @@ def _apply_poll_result(result: dict, polled) -> dict:
         proxy = polled.get('proxy')
         if proxy:
             result['proxy'] = proxy
+        # hCaptcha hands the widget a second value next to the token. It is
+        # carried even when empty, which is how the server reports "none".
+        if 'respKey' in polled:
+            result['respKey'] = polled['respKey']
         # ALTCHA's createTask-shaped `solution` object. Carried through so
         # _apply_altcha_solution can read the counter the server already worked
         # out, which is the only reliable source for a proof-of-work v2 answer;
@@ -252,6 +256,19 @@ def _apply_token_solution(result: dict) -> dict:
         result['code'] = code
 
     result['token'] = code or ''
+    return result
+
+
+def _apply_hcaptcha_solution(result: dict) -> dict:
+    """Expose the hCaptcha token as `token`, next to its `respKey`.
+
+    `code` keeps the token as the server sent it and `token` is the same string,
+    for the `h-captcha-response` field. `respKey` is always present, empty when
+    the widget handed out none, so callers can read it without a key check.
+    """
+    result = _apply_token_solution(result)
+    respkey = result.get('respKey')
+    result['respKey'] = respkey if isinstance(respkey, str) else ''
     return result
 
 
@@ -563,6 +580,46 @@ class CapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_datadome_solution(self.solve(**params))
 
+    def hcaptcha(self, sitekey, url, **kwargs):
+        """Solve an hCaptcha widget and return its token.
+
+        The arguments follow 2Captcha's `hcaptcha(sitekey, url, **kwargs)`:
+
+        * `sitekey` -- the widget's `data-sitekey` (or the `sitekey` option of
+          `hcaptcha.render()`).
+        * `url` -- the full address of the page the widget is on.
+        * `invisible` -- `1` (or `True`) for a `data-size="invisible"` widget.
+        * `data` -- the `rqdata` value an hCaptcha Enterprise site passes to
+          `hcaptcha.setData()`. It is single use and expires quickly, so fetch
+          a fresh one for every task.
+        * `userAgent` -- the User-Agent you will submit the form with. CapSkip
+          uses it only when it matches the browser it solves with.
+        * `proxy` -- a URI string or `{'type': 'HTTP', 'uri': 'login:password@IP:PORT'}`.
+
+        hCaptcha Enterprise and invisible widgets use this same method.
+
+        The result carries the token as both `code` and `token` (for the
+        `h-captcha-response` and `g-recaptcha-response` fields), `respKey`
+        (the second value hCaptcha hands the widget; most sites never read it,
+        and it can be empty), and `userAgent`, the User-Agent the token was
+        earned with. Submit the token with that User-Agent, soon: hCaptcha
+        tokens are single use and expire about two minutes after they are issued.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'hcaptcha',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Drop the unset ones here, so `pageurl=` can stand in for `url`
+        # without tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # A real browser session, like reCAPTCHA, so it gets the longer of the
+        # two timeouts unless the caller asked for a specific one.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_hcaptcha_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -633,4 +690,6 @@ class CapSkip:
             return prepare_submit_params(params, 'amazon_waf')
         if method == 'datadome':
             return prepare_submit_params(params, 'datadome')
+        if method == 'hcaptcha':
+            return prepare_submit_params(params, 'hcaptcha')
         return apply_proxy(apply_param_aliases(params))

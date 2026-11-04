@@ -64,6 +64,18 @@ _AMAZON_WAF_SCRIPT_PATH = re.compile(
     r'^(/[A-Za-z0-9_-]+)+/(challenge|captcha|jsapi)\.js$'
 )
 
+HCAPTCHA_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'invisible', 'data', 'useragent', 'json',
+    'proxy', 'proxytype',
+})
+
+# What the server reads as "invisible widget" ("1" or "true") and as its
+# default. A Python bool would otherwise reach the form body as 'True'.
+_HCAPTCHA_INVISIBLE = {
+    True: 1, False: 0, 1: 1, 0: 0,
+    '1': 1, '0': 0, 'true': 1, 'false': 0,
+}
+
 DATADOME_SUBMIT = frozenset({
     'method', 'captcha_url', 'pageurl', 'useragent', 'json', 'proxy', 'proxytype',
 })
@@ -493,6 +505,52 @@ def validate_datadome_submit(params: dict) -> None:
         )
 
 
+def normalize_hcaptcha_submit(params: dict) -> dict:
+    """Drop unset optionals and send `invisible` as the 1 the server reads.
+
+    `invisible=0` is the server's default, so it is not sent at all.
+    """
+    params = {k: v for k, v in drop_unset(params).items() if v != ''}
+    if 'invisible' in params:
+        raw = params['invisible']
+        key = raw.lower() if isinstance(raw, str) else raw
+        try:
+            value = _HCAPTCHA_INVISIBLE[key]
+        except (KeyError, TypeError):
+            value = None
+        if value is None:
+            raise ValidationException(
+                f"invisible must be 0 or 1 (or a bool) for hCaptcha, not {raw!r}."
+            )
+        if value:
+            params['invisible'] = 1
+        else:
+            del params['invisible']
+    return params
+
+
+def validate_hcaptcha_submit(params: dict) -> None:
+    # The server answers ERROR_RECAPTCHA_INVALID_SITEKEY for a missing sitekey
+    # and ERROR_PAGEURL for a page URL that is missing or not http(s). Fail
+    # locally so neither costs a round-trip.
+    if not str(params.get('sitekey') or '').strip():
+        raise ValidationException("'sitekey' is required for hCaptcha.")
+    pageurl = str(params.get('pageurl') or '').strip()
+    if not pageurl:
+        raise ValidationException("'pageurl' is required for hCaptcha.")
+    parts = urlsplit(pageurl)
+    if parts.scheme.lower() not in ('http', 'https') or not parts.netloc:
+        raise ValidationException(
+            f"pageurl must be an absolute http or https URL for hCaptcha, not {pageurl!r}."
+        )
+
+    unknown = _unknown_keys(params, HCAPTCHA_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for hCaptcha: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -536,6 +594,9 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
     elif captcha_type == 'datadome':
         params = {k: v for k, v in drop_unset(params).items() if v != ''}
         validate_datadome_submit(params)
+    elif captcha_type == 'hcaptcha':
+        params = normalize_hcaptcha_submit(params)
+        validate_hcaptcha_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

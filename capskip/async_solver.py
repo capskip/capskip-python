@@ -302,6 +302,27 @@ class AsyncCapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_hcaptcha_solution(await self.solve(**params))
 
+    async def mtcaptcha(self, sitekey, url, **kwargs):
+        """Solve an MTCaptcha text captcha and return its token.
+
+        The arguments follow 2Captcha's `mtcaptcha(sitekey, url, **kwargs)`, with
+        `action`, `userAgent` and `proxy` optional. See `CapSkip.mtcaptcha` for
+        the details. The result carries the token as both `code` and `token`.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'mt_captcha',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Drop the unset ones here, so `pageurl=` can stand in for `url`
+        # without tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # No browser: CapSkip fetches the challenge and reads the text itself,
+        # so it keeps the default timeout like ALTCHA and Capy.
+        return _apply_token_solution(await self.solve(**params))
+
     async def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = await self.send(**kwargs)
@@ -376,4 +397,6 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'datadome')
         if method == 'hcaptcha':
             return prepare_submit_params(params, 'hcaptcha')
+        if method in ('mt_captcha', 'mtcaptcha'):
+            return prepare_submit_params(params, 'mtcaptcha')
         return apply_proxy(apply_param_aliases(params))

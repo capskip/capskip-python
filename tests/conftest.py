@@ -1,6 +1,7 @@
 import base64
 import itertools
 import json
+import re
 import struct
 import threading
 import zlib
@@ -85,6 +86,14 @@ HCAPTCHA_USER_AGENT = (
     '(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36'
 )
 
+# MTCaptcha, as CapSkip's res.php answers it: the verified token MTCaptcha
+# issued, v1( then comma-separated parts (the sitekey among them) and a
+# base64url payload, closed by **). Nothing else rides with it.
+MTCAPTCHA_TOKEN = (
+    'v1(0f3c9e2a,7b1d4c88,MTPublic-KzqLY1cKH,5e0c2a9f61d84b37a0c1e9b2d6f4a873,'
+    'Qm9ndXNUb2tlbkZvclRlc3RzT25seV9fTm90QVJlYWxNVENhcHRjaGFUb2tlbi1BYkNkRWZHaA**)'
+)
+
 
 def _png_bytes():
     def chunk(tag, data):
@@ -150,6 +159,13 @@ def _make_handler():
             # Python bool stringified to 'True' would silently mean "visible".
             # The mock refuses it so the integration test catches the slip.
             if fields.get('method') == 'hcaptcha' and fields.get('invisible', '1') not in ('1', 'true'):
+                self._send('ERROR_BAD_PARAMETERS')
+                return
+
+            # CapSkip's own sitekey test for MTCaptcha. The SDK refuses a bad one
+            # first, so reaching here with one means local validation slipped.
+            if fields.get('method') in ('mt_captcha', 'mtcaptcha') and not re.match(
+                    r'^MTPublic-[A-Za-z0-9_-]{1,55}$', fields.get('sitekey', '')):
                 self._send('ERROR_BAD_PARAMETERS')
                 return
 
@@ -247,6 +263,13 @@ def _make_handler():
                     }), 'application/json')
                 else:
                     self._send('OK|' + HCAPTCHA_TOKEN)
+            elif id_type.get(cid) in ('mt_captcha', 'mtcaptcha'):
+                # The bare status/request pair: the token and nothing else.
+                if want_json:
+                    self._send(json.dumps({'status': 1, 'request': MTCAPTCHA_TOKEN}),
+                               'application/json')
+                else:
+                    self._send('OK|' + MTCAPTCHA_TOKEN)
             elif id_type.get(cid) == 'captchafox':
                 # The UA is the browser's own, and CapSkip reports it at the top
                 # level and inside solution both.

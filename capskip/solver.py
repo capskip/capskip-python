@@ -620,6 +620,37 @@ class CapSkip:
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_hcaptcha_solution(self.solve(**params))
 
+    def mtcaptcha(self, sitekey, url, **kwargs):
+        """Solve an MTCaptcha text captcha and return its token.
+
+        The arguments follow 2Captcha's `mtcaptcha(sitekey, url, **kwargs)`:
+
+        * `sitekey` -- the widget's sitekey, `MTPublic-` followed by letters,
+          digits, `-` or `_`. It is in the page's `mtcaptchaConfig` object, or
+          in the `sitekey` query parameter of the widget's iframe.
+        * `url` -- the full address of the page the widget is on. MTCaptcha
+          issues tokens only for the domains the sitekey is registered for.
+        * `action` -- the `action` the page sets in `mtcaptchaConfig`, if any.
+        * `userAgent` -- the User-Agent to present to MTCaptcha.
+        * `proxy` -- a URI string or `{'type': 'HTTP', 'uri': 'login:password@IP:PORT'}`.
+
+        The result carries the token, `v1(...)`, as both `code` and `token`, for
+        the form's `mtcaptcha-verifiedtoken` field.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'mt_captcha',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Drop the unset ones here, so `pageurl=` can stand in for `url`
+        # without tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # No browser: CapSkip fetches the challenge and reads the text itself,
+        # so it keeps the default timeout like ALTCHA and Capy.
+        return _apply_token_solution(self.solve(**params))
+
     def solve(self, timeout=0, polling_interval=0, poll_json=0, **kwargs):
         poll_json = int(kwargs.pop('poll_json', poll_json) or 0)
         captcha_id = self.send(**kwargs)
@@ -692,4 +723,6 @@ class CapSkip:
             return prepare_submit_params(params, 'datadome')
         if method == 'hcaptcha':
             return prepare_submit_params(params, 'hcaptcha')
+        if method in ('mt_captcha', 'mtcaptcha'):
+            return prepare_submit_params(params, 'mtcaptcha')
         return apply_proxy(apply_param_aliases(params))

@@ -15,14 +15,14 @@ try:
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
-        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT,
+        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT, MTCAPTCHA_TOKEN,
     )
 except ImportError:
     from conftest import (
         ALTCHA_NUMBER, ALTCHA_TOKEN, AMAZON_WAF_SOLUTION, CAPTCHAFOX_TOKEN, CAPTCHAFOX_USER_AGENT,
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
-        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT,
+        HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT, MTCAPTCHA_TOKEN,
     )
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
@@ -476,3 +476,40 @@ async def test_async_hcaptcha(async_solver):
     assert r['token'] == HCAPTCHA_TOKEN
     assert r['respKey'] == HCAPTCHA_RESP_KEY
     assert r['userAgent'] == HCAPTCHA_USER_AGENT
+
+
+# -- MTCaptcha ------------------------------------------------------------
+
+MT_SITEKEY = 'MTPublic-KzqLY1cKH'
+MT_PAGE = 'https://2captcha.com/demo/mtcaptcha'
+
+
+def test_mtcaptcha(solver):
+    r = solver.mtcaptcha(MT_SITEKEY, MT_PAGE)
+    assert r['captchaId']
+    assert r['code'] == MTCAPTCHA_TOKEN
+    assert r['token'] == MTCAPTCHA_TOKEN
+
+
+def test_mtcaptcha_with_every_option(solver):
+    r = solver.mtcaptcha('sk=' + MT_SITEKEY, MT_PAGE, action='login',
+                         userAgent='Mozilla/5.0 (caller)',
+                         proxy={'type': 'SOCKS5H', 'uri': 'login:p%40ss@203.0.113.7:1080'})
+    assert r['token'] == MTCAPTCHA_TOKEN
+
+
+def test_mtcaptcha_bad_sitekey_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.mtcaptcha('KzqLY1cKH', MT_PAGE)
+
+
+def test_mtcaptcha_socks4_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.mtcaptcha(MT_SITEKEY, MT_PAGE, proxy={'type': 'SOCKS4', 'uri': '203.0.113.7:1080'})
+
+
+@pytest.mark.asyncio
+async def test_async_mtcaptcha(async_solver):
+    r = await async_solver.mtcaptcha(MT_SITEKEY, MT_PAGE, action='login')
+    assert r['code'] == MTCAPTCHA_TOKEN
+    assert r['token'] == MTCAPTCHA_TOKEN

@@ -76,6 +76,15 @@ _HCAPTCHA_INVISIBLE = {
     '1': 1, '0': 0, 'true': 1, 'false': 0,
 }
 
+MTCAPTCHA_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'action', 'useragent', 'json',
+    'proxy', 'proxytype',
+})
+
+# The server's sitekey test: MTPublic- then 1-55 letters, digits, '-' or '_'
+# (64 characters at most). Anything else is answered ERROR_BAD_PARAMETERS.
+_MTCAPTCHA_SITEKEY = re.compile(r'^MTPublic-[A-Za-z0-9_-]{1,55}$')
+
 DATADOME_SUBMIT = frozenset({
     'method', 'captcha_url', 'pageurl', 'useragent', 'json', 'proxy', 'proxytype',
 })
@@ -551,6 +560,45 @@ def validate_hcaptcha_submit(params: dict) -> None:
         )
 
 
+def normalize_mtcaptcha_submit(params: dict) -> dict:
+    params = {k: v for k, v in drop_unset(params).items() if v != ''}
+    sitekey = params.get('sitekey')
+    if isinstance(sitekey, str):
+        sitekey = sitekey.strip()
+        # MTCaptcha's own getchallenge query names the key `sk=MTPublic-...`,
+        # and callers copy it from there; the server strips that prefix too.
+        if sitekey[:3].lower() == 'sk=':
+            sitekey = sitekey[3:].strip()
+        params['sitekey'] = sitekey
+    return params
+
+
+def validate_mtcaptcha_submit(params: dict) -> None:
+    sitekey = params.get('sitekey')
+    if not sitekey:
+        raise ValidationException("'sitekey' is required for MTCaptcha.")
+    if not isinstance(sitekey, str) or not _MTCAPTCHA_SITEKEY.match(sitekey):
+        raise ValidationException(
+            f"{sitekey!r} is not an MTCaptcha sitekey. It starts with MTPublic- "
+            f"followed by letters, digits, '-' or '_' (64 characters at most)."
+        )
+
+    pageurl = params.get('pageurl')
+    if not pageurl:
+        raise ValidationException("'pageurl' is required for MTCaptcha.")
+    parts = urlsplit(str(pageurl).strip())
+    if parts.scheme.lower() not in ('http', 'https') or not parts.hostname:
+        raise ValidationException(
+            f"pageurl must be an absolute http or https URL for MTCaptcha, not {pageurl!r}."
+        )
+
+    unknown = _unknown_keys(params, MTCAPTCHA_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for MTCaptcha: {sorted(unknown)}."
+        )
+
+
 def validate_proxy_type(params: dict) -> None:
     proxytype = params.get('proxytype')
     if proxytype in (None, ''):
@@ -597,6 +645,9 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
     elif captcha_type == 'hcaptcha':
         params = normalize_hcaptcha_submit(params)
         validate_hcaptcha_submit(params)
+    elif captcha_type == 'mtcaptcha':
+        params = normalize_mtcaptcha_submit(params)
+        validate_mtcaptcha_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

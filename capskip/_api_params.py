@@ -29,6 +29,11 @@ GEETEST_SUBMIT = frozenset({
     'proxy', 'proxytype',
 })
 
+GEETEST_V4_SUBMIT = frozenset({
+    'method', 'captcha_id', 'pageurl', 'risk_type', 'json',
+    'proxy', 'proxytype',
+})
+
 ALTCHA_SUBMIT = frozenset({
     'method', 'pageurl', 'challenge_url', 'challenge_json', 'json',
     'proxy', 'proxytype',
@@ -84,6 +89,16 @@ MTCAPTCHA_SUBMIT = frozenset({
 # The server's sitekey test: MTPublic- then 1-55 letters, digits, '-' or '_'
 # (64 characters at most). Anything else is answered ERROR_BAD_PARAMETERS.
 _MTCAPTCHA_SITEKEY = re.compile(r'^MTPublic-[A-Za-z0-9_-]{1,55}$')
+
+YANDEX_SUBMIT = frozenset({
+    'method', 'sitekey', 'pageurl', 'useragent', 'json',
+    'proxy', 'proxytype',
+})
+
+# The server's sitekey test for Yandex SmartCaptcha: 16 to 120 letters, digits,
+# '_' or '-'. Client keys usually start with ysc1_, but older ones do not, so the
+# prefix is not required. Anything else is answered ERROR_BAD_PARAMETERS.
+_YANDEX_SITEKEY = re.compile(r'^[A-Za-z0-9_-]{16,120}$')
 
 DATADOME_SUBMIT = frozenset({
     'method', 'captcha_url', 'pageurl', 'useragent', 'json', 'proxy', 'proxytype',
@@ -152,6 +167,11 @@ _PARAM_ALIASES = {
     # callers arrive with captchaUrl.
     'captchaUrl': 'captcha_url',
     'captchaURL': 'captcha_url',
+    # GeeTest v4: the API documents captcha_id and riskType, and the server
+    # reads captchaId and risk_type too. The SDK sends captcha_id and risk_type,
+    # the spellings 2Captcha's own SDKs send.
+    'captchaId': 'captcha_id',
+    'riskType': 'risk_type',
 }
 
 
@@ -244,6 +264,75 @@ def validate_geetest_submit(params: dict) -> None:
     if unknown:
         raise ValidationException(
             f"Unsupported parameters for GeeTest: {sorted(unknown)}."
+        )
+
+
+def normalize_geetest_v4_submit(params: dict) -> dict:
+    params = {k: v for k, v in drop_unset(params).items() if v != ''}
+    for key in ('captcha_id', 'risk_type'):
+        if isinstance(params.get(key), str):
+            params[key] = params[key].strip()
+            if not params[key]:
+                del params[key]
+    return params
+
+
+def _require_web_url(params: dict, name: str) -> None:
+    pageurl = params.get('pageurl')
+    if not pageurl:
+        raise ValidationException(f"'pageurl' is required for {name}.")
+    parts = urlsplit(str(pageurl).strip())
+    if parts.scheme.lower() not in ('http', 'https') or not parts.hostname:
+        raise ValidationException(
+            f"pageurl must be an absolute http or https URL for {name}, not {pageurl!r}."
+        )
+
+
+def validate_geetest_v4_submit(params: dict) -> None:
+    # captcha_id is static per site and is all v4 needs besides the page: there
+    # is no per-request challenge as in v3. Without it the server answers
+    # ERROR_BAD_PARAMETERS, and without a full pageurl ERROR_PAGEURL.
+    if not params.get('captcha_id'):
+        raise ValidationException("'captcha_id' is required for GeeTest v4.")
+    if not isinstance(params['captcha_id'], str):
+        raise ValidationException("'captcha_id' must be a string for GeeTest v4.")
+
+    _require_web_url(params, 'GeeTest v4')
+
+    risk_type = params.get('risk_type')
+    if risk_type is not None and not isinstance(risk_type, str):
+        raise ValidationException("'risk_type' must be a string for GeeTest v4.")
+
+    unknown = _unknown_keys(params, GEETEST_V4_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for GeeTest v4: {sorted(unknown)}."
+        )
+
+
+def normalize_yandex_submit(params: dict) -> dict:
+    params = {k: v for k, v in drop_unset(params).items() if v != ''}
+    if isinstance(params.get('sitekey'), str):
+        params['sitekey'] = params['sitekey'].strip()
+    return params
+
+
+def validate_yandex_submit(params: dict) -> None:
+    sitekey = params.get('sitekey')
+    if not sitekey:
+        raise ValidationException("'sitekey' is required for Yandex SmartCaptcha.")
+    if not isinstance(sitekey, str) or not _YANDEX_SITEKEY.match(sitekey):
+        raise ValidationException(
+            f"{sitekey!r} is not a Yandex SmartCaptcha sitekey. It is 16 to 120 "
+            f"letters, digits, '_' or '-', usually starting with ysc1_."
+        )
+
+    _require_web_url(params, 'Yandex SmartCaptcha')
+
+    unknown = _unknown_keys(params, YANDEX_SUBMIT)
+    if unknown:
+        raise ValidationException(
+            f"Unsupported parameters for Yandex SmartCaptcha: {sorted(unknown)}."
         )
 
 
@@ -648,6 +737,12 @@ def prepare_submit_params(params: dict, captcha_type: str, version: str = 'v2') 
     elif captcha_type == 'mtcaptcha':
         params = normalize_mtcaptcha_submit(params)
         validate_mtcaptcha_submit(params)
+    elif captcha_type == 'geetest_v4':
+        params = normalize_geetest_v4_submit(params)
+        validate_geetest_v4_submit(params)
+    elif captcha_type == 'yandex':
+        params = normalize_yandex_submit(params)
+        validate_yandex_submit(params)
 
     # Skipped for 'normal', which rejects proxy outright with a clearer message.
     if captcha_type != 'normal':

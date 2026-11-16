@@ -15,6 +15,7 @@ from .solver import (
     _apply_capy_solution,
     _apply_datadome_solution,
     _apply_geetest_solution,
+    _apply_geetest_v4_solution,
     _apply_hcaptcha_solution,
     _apply_poll_result,
     _apply_token_solution,
@@ -97,6 +98,43 @@ class AsyncCapSkip:
         # the caller asked for a specific one.
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_geetest_solution(await self.solve(**params))
+
+    async def geetest_v4(self, captcha_id, url, **kwargs):
+        """Solve a GeeTest v4 CAPTCHA.
+
+        The arguments follow 2Captcha's `geetest_v4(captcha_id, url, **kwargs)`,
+        with `risk_type` and `proxy` optional. See `CapSkip.geetest_v4` for the
+        details. The result carries the raw answer as `code` plus the parsed
+        `captcha_id`, `lot_number`, `pass_token`, `gen_time` and `captcha_output`.
+        """
+        params = {
+            'captcha_id': captcha_id,
+            'url': url,
+            'method': 'geetest_v4',
+            'poll_json': 1,
+            **kwargs,
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_geetest_v4_solution(await self.solve(**params))
+
+    async def yandex_smart(self, sitekey, url, **kwargs):
+        """Solve a Yandex SmartCaptcha and return its token.
+
+        The arguments follow 2Captcha's `yandex_smart(sitekey, url, **kwargs)`,
+        with `userAgent` and `proxy` optional. See `CapSkip.yandex_smart` for the
+        details. The result carries the token as both `code` and `token`.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'yandex',
+            'poll_json': 1,
+            **kwargs,
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_token_solution(await self.solve(**params))
 
     async def altcha(self, url, **kwargs):
         """Solve an ALTCHA proof-of-work challenge.
@@ -399,4 +437,8 @@ class AsyncCapSkip:
             return prepare_submit_params(params, 'hcaptcha')
         if method in ('mt_captcha', 'mtcaptcha'):
             return prepare_submit_params(params, 'mtcaptcha')
+        if method == 'geetest_v4':
+            return prepare_submit_params(params, 'geetest_v4')
+        if method == 'yandex':
+            return prepare_submit_params(params, 'yandex')
         return apply_proxy(apply_param_aliases(params))

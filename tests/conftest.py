@@ -94,6 +94,28 @@ MTCAPTCHA_TOKEN = (
     'Qm9ndXNUb2tlbkZvclRlc3RzT25seV9fTm90QVJlYWxNVENhcHRjaGFUb2tlbi1BYkNkRWZHaA**)'
 )
 
+# GeeTest v4, as CapSkip's res.php answers it: `request` is the five-value
+# object serialized to a JSON string, in json=1 mode as well as after OK|. The
+# server escapes the quotes inside it as \u0022, which a JSON parser must undo.
+GEETEST_V4_SOLUTION = {
+    'captcha_id': '54088bb07d2df3c46b79f80300b0abbe',
+    'lot_number': '7c1a4f0e9b2d48a6b3e5f7d9c1a3b5e7',
+    'pass_token': '2f6c0e4a8b1d5f9e3c7a0b4d8e2f6a1c5b9d3e7f0a4c8b2e6d1f5a9c3e7b0d4f8',
+    'gen_time': '1793001600',
+    'captcha_output': 'TM-rSt-9GZ_6s_5-dyAo3ZzQxZ3nhs8agozV1dXHM52rdKikcSbx6m9Z_vx1YtexMiou'
+                      'zC-83byvGlGzNTrsCk6EaDdzrugpzIevLISL7vRvwymvNEQ-NUfQM_PoUHAgWIs1w==',
+}
+GEETEST_V4_CODE = json.dumps(GEETEST_V4_SOLUTION, separators=(',', ':'))
+
+# Yandex SmartCaptcha, as res.php answers it: the bare token and nothing else.
+# A real token is base64 of t=<time>;i=<solver IP>;D=<hex>;u=...;h=...; this one
+# carries a documentation address instead of a real one.
+YANDEX_TOKEN = (
+    'dD0xNzk0NDE5NTg3O2k9MjAzLjAuMTEzLjI1O0Q9QjQ1RjJBN0MxRTkwRDM2ODU0QzA1M0M3QTFF'
+    'MkIzQzRENUU2RjcwODE5MkEzQjRDNUQ2RTdGODA5MUEyQjNDNEQ1RTZGNzA4MTt1PTE3OTQ0MTk1'
+    'ODcxMjM0NTY3ODk7aD01ZjBjMmE5ZTYxZDg0YjM3YTBjMWU5YjJkNmY0YTg3Mw=='
+)
+
 
 def _png_bytes():
     def chunk(tag, data):
@@ -166,6 +188,22 @@ def _make_handler():
             # first, so reaching here with one means local validation slipped.
             if fields.get('method') in ('mt_captcha', 'mtcaptcha') and not re.match(
                     r'^MTPublic-[A-Za-z0-9_-]{1,55}$', fields.get('sitekey', '')):
+                self._send('ERROR_BAD_PARAMETERS')
+                return
+
+            # CapSkip's own sitekey test for Yandex SmartCaptcha, and its pageurl
+            # test. The SDK refuses both first; reaching here means it slipped.
+            if fields.get('method') == 'yandex':
+                if not re.match(r'^[A-Za-z0-9_-]{16,120}$', fields.get('sitekey', '')):
+                    self._send('ERROR_BAD_PARAMETERS')
+                    return
+                if not re.match(r'^https?://[^/]+', fields.get('pageurl', '')):
+                    self._send('ERROR_PAGEURL')
+                    return
+
+            # GeeTest v4 needs a captcha_id, and nothing of v3's.
+            if fields.get('method') == 'geetest_v4' and (
+                    not fields.get('captcha_id') or 'gt' in fields or 'challenge' in fields):
                 self._send('ERROR_BAD_PARAMETERS')
                 return
 
@@ -263,6 +301,19 @@ def _make_handler():
                     }), 'application/json')
                 else:
                     self._send('OK|' + HCAPTCHA_TOKEN)
+            elif id_type.get(cid) == 'geetest_v4':
+                if want_json:
+                    body = json.dumps({'status': 1, 'request': GEETEST_V4_CODE})
+                    # SerializeWirePayload escapes the inner quotes as \u0022.
+                    self._send(body.replace('\\"', '\\u0022'), 'application/json')
+                else:
+                    self._send('OK|' + GEETEST_V4_CODE)
+            elif id_type.get(cid) == 'yandex':
+                if want_json:
+                    self._send(json.dumps({'status': 1, 'request': YANDEX_TOKEN}),
+                               'application/json')
+                else:
+                    self._send('OK|' + YANDEX_TOKEN)
             elif id_type.get(cid) in ('mt_captcha', 'mtcaptcha'):
                 # The bare status/request pair: the token and nothing else.
                 if want_json:

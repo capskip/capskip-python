@@ -112,6 +112,25 @@ def _apply_geetest_solution(result: dict) -> dict:
     return result
 
 
+# A GeeTest v4 answer is five values the site verifies with GeeTest together,
+# under these same names. `isOffline` rides along only when GeeTest could not be
+# reached and its widget passed without a challenge; the site decides whether to
+# accept such a pass.
+_GEETEST_V4_FIELDS = (
+    'captcha_id', 'lot_number', 'pass_token', 'gen_time', 'captcha_output', 'isOffline',
+)
+
+
+def _apply_geetest_v4_solution(result: dict) -> dict:
+    """Expand the GeeTest v4 answer into its five fields.
+
+    `code` keeps the raw answer -- the JSON string the server sends in `request`
+    -- so callers that forward it verbatim keep working. If it does not parse,
+    the result is returned untouched rather than masking the server's reply.
+    """
+    return _expand_object_answer(result, _GEETEST_V4_FIELDS)
+
+
 # ALTCHA answers come back as a base64 payload: the challenge document with the
 # winning counter added. That payload is what the site's own `altcha` form field
 # carries, so it is posted back verbatim.
@@ -363,6 +382,65 @@ class CapSkip:
         # the caller asked for a specific one.
         params.setdefault('timeout', self.recaptcha_timeout)
         return _apply_geetest_solution(self.solve(**params))
+
+    def geetest_v4(self, captcha_id, url, **kwargs):
+        """Solve a GeeTest v4 CAPTCHA.
+
+        The arguments follow 2Captcha's `geetest_v4(captcha_id, url, **kwargs)`:
+
+        * `captcha_id` -- the widget's ID, passed to `initGeetest4` as
+          `captchaId`. It is the same for every visitor, so read it once.
+        * `url` -- the full address of the page the widget is on.
+        * `risk_type` -- the challenge type to ask GeeTest for (`slide`, `icon`,
+          `nine`, `word`, `phrase`, `match`, `winlinze`, `svg_seed`, `svg_icon`
+          or `ai`). GeeTest applies it only where the site allows it.
+        * `proxy` -- a URI string or `{'type': 'HTTP', 'uri': 'login:password@IP:PORT'}`.
+
+        The result carries the raw answer as `code` (a JSON string) plus the
+        parsed `captcha_id`, `lot_number`, `pass_token`, `gen_time` and
+        `captcha_output`, the five values to post back to the target site, and
+        `isOffline` when GeeTest passed the widget in offline mode.
+        """
+        params = {
+            'captcha_id': captcha_id,
+            'url': url,
+            'method': 'geetest_v4',
+            'poll_json': 1,
+            **kwargs,
+        }
+        # Drop the unset ones here, so `pageurl=` can stand in for `url`
+        # without tripping the alias conflict check against a None.
+        params = {k: v for k, v in params.items() if v is not None}
+        # A real browser solve, like v3, so it takes the longer timeout.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_geetest_v4_solution(self.solve(**params))
+
+    def yandex_smart(self, sitekey, url, **kwargs):
+        """Solve a Yandex SmartCaptcha and return its token.
+
+        The arguments follow 2Captcha's `yandex_smart(sitekey, url, **kwargs)`:
+
+        * `sitekey` -- the widget's `data-sitekey`, usually starting `ysc1_`.
+        * `url` -- the full address of the page the widget is on. Yandex checks
+          the sitekey against that domain.
+        * `userAgent` -- the User-Agent to present to Yandex.
+        * `proxy` -- a URI string or `{'type': 'HTTP', 'uri': 'login:password@IP:PORT'}`.
+
+        The result carries the token as both `code` and `token`, for the form's
+        `smart-token` field. A token is valid for five minutes and checks once.
+        """
+        params = {
+            'sitekey': sitekey,
+            'url': url,
+            'method': 'yandex',
+            'poll_json': 1,
+            **kwargs,
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+        # The widget runs in a real browser and may ask for several rounds of
+        # challenges, so it takes the longer timeout.
+        params.setdefault('timeout', self.recaptcha_timeout)
+        return _apply_token_solution(self.solve(**params))
 
     def altcha(self, url, **kwargs):
         """Solve an ALTCHA proof-of-work challenge.
@@ -725,4 +803,8 @@ class CapSkip:
             return prepare_submit_params(params, 'hcaptcha')
         if method in ('mt_captcha', 'mtcaptcha'):
             return prepare_submit_params(params, 'mtcaptcha')
+        if method == 'geetest_v4':
+            return prepare_submit_params(params, 'geetest_v4')
+        if method == 'yandex':
+            return prepare_submit_params(params, 'yandex')
         return apply_proxy(apply_param_aliases(params))

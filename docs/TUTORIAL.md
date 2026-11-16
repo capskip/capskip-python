@@ -519,6 +519,8 @@ requests.post(CHALLENGE_URL, data={"cf-turnstile-response": solved["code"]}, hea
 | reCAPTCHA | `recaptcha(sitekey, url, version="v2", enterprise=0, **kwargs)` |
 | Turnstile | `turnstile(sitekey, url, **kwargs)` |
 | GeeTest v3 | `geetest(gt, challenge, url, **kwargs)` |
+| GeeTest v4 | `geetest_v4(captcha_id, url, **kwargs)` |
+| Yandex SmartCaptcha | `yandex_smart(sitekey, url, **kwargs)` |
 | Manual submit | `send(**kwargs) -> id` |
 | Manual poll | `get_result(id, json=0)` |
 
@@ -532,6 +534,8 @@ The SDK accepts friendly names and converts them to the raw API parameters:
 | `score`, `minScore` | `min_score` |
 | `datas`, `data_s` | `data-s` |
 | `apiServer`, `api_subdomain` | `api_server` |
+| `captchaId` | `captcha_id` |
+| `riskType` | `risk_type` |
 | `proxy` (dict) | `proxy` + `proxytype` strings |
 
 Anything CapSkip does not document for a given captcha type is rejected with

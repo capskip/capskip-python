@@ -151,6 +151,8 @@ python examples/recaptcha.py
 | `recaptcha.py` | reCAPTCHA v2, v3, invisible, enterprise, proxy |
 | `turnstile.py` | Cloudflare Turnstile widget and challenge page |
 | `geetest.py` | GeeTest v3 slider, including fetching a fresh `gt`/`challenge` pair |
+| `geetest_v4.py` | GeeTest v4, from the `captcha_id` alone |
+| `yandex_smart.py` | Yandex SmartCaptcha token |
 | `async_example.py` | Parallel async solving |
 | `verify_connection.py` | Check CapSkip is running |
 

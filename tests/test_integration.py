@@ -16,6 +16,7 @@ try:
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
         HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT, MTCAPTCHA_TOKEN,
+        GEETEST_V4_CODE, GEETEST_V4_SOLUTION, YANDEX_TOKEN,
     )
 except ImportError:
     from conftest import (
@@ -23,6 +24,7 @@ except ImportError:
         CAPY_SOLUTION, CODE, FRIENDLY_CAPTCHA_TOKEN, USER_AGENT, PNG,
         DATADOME_BROWSER_USER_AGENT, DATADOME_COOKIE, DATADOME_LIST_PROXY,
         HCAPTCHA_RESP_KEY, HCAPTCHA_TOKEN, HCAPTCHA_USER_AGENT, MTCAPTCHA_TOKEN,
+        GEETEST_V4_CODE, GEETEST_V4_SOLUTION, YANDEX_TOKEN,
     )
 
 SITEKEY = '6Le-wvkSVVABCPBMRTvw0Q4Muexq1bi0DJwx_mJ-'
@@ -513,3 +515,83 @@ async def test_async_mtcaptcha(async_solver):
     r = await async_solver.mtcaptcha(MT_SITEKEY, MT_PAGE, action='login')
     assert r['code'] == MTCAPTCHA_TOKEN
     assert r['token'] == MTCAPTCHA_TOKEN
+
+
+# -- GeeTest v4 -----------------------------------------------------------
+
+GT4_CAPTCHA_ID = '54088bb07d2df3c46b79f80300b0abbe'
+GT4_PAGE = 'https://gt4.geetest.com/'
+
+
+def test_geetest_v4(solver):
+    r = solver.geetest_v4(GT4_CAPTCHA_ID, GT4_PAGE)
+    assert r['captchaId']
+    assert r['code'] == GEETEST_V4_CODE
+    for field, value in GEETEST_V4_SOLUTION.items():
+        assert r[field] == value
+    assert 'isOffline' not in r
+
+
+def test_geetest_v4_with_every_option(solver):
+    r = solver.geetest_v4(captcha_id=GT4_CAPTCHA_ID, url=None, pageurl=GT4_PAGE, riskType='slide',
+                          proxy={'type': 'SOCKS5H', 'uri': 'login:p%40ss@203.0.113.7:1080'})
+    assert r['lot_number'] == GEETEST_V4_SOLUTION['lot_number']
+
+
+def test_geetest_v4_missing_captcha_id_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.geetest_v4('', GT4_PAGE)
+
+
+def test_geetest_v4_v3_params_are_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.geetest_v4(GT4_CAPTCHA_ID, GT4_PAGE, gt='81388ea1fc187e0c335c0a8907ff2625')
+
+
+@pytest.mark.asyncio
+async def test_async_geetest_v4(async_solver):
+    r = await async_solver.geetest_v4(GT4_CAPTCHA_ID, GT4_PAGE, risk_type='icon')
+    assert r['code'] == GEETEST_V4_CODE
+    assert r['captcha_output'] == GEETEST_V4_SOLUTION['captcha_output']
+
+
+# -- Yandex SmartCaptcha --------------------------------------------------
+
+YANDEX_SITEKEY = 'ysc1_DAo8nFPdNCMHkAwYxIUJFxW5IIJd99BBfeeeee'
+YANDEX_PAGE = 'https://smartcaptcha.yandexcloud.net/demo'
+
+
+def test_yandex_smart(solver):
+    r = solver.yandex_smart(YANDEX_SITEKEY, YANDEX_PAGE)
+    assert r['captchaId']
+    assert r['code'] == YANDEX_TOKEN
+    assert r['token'] == YANDEX_TOKEN
+
+
+def test_yandex_smart_with_every_option(solver):
+    r = solver.yandex_smart(YANDEX_SITEKEY, YANDEX_PAGE, userAgent='Mozilla/5.0 (caller)',
+                            proxy={'type': 'HTTPS', 'uri': 'login:password@203.0.113.7:3128'})
+    assert r['token'] == YANDEX_TOKEN
+
+
+def test_yandex_smart_bad_sitekey_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.yandex_smart('too-short', YANDEX_PAGE)
+
+
+def test_yandex_smart_bad_pageurl_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.yandex_smart(YANDEX_SITEKEY, 'smartcaptcha.yandexcloud.net/demo')
+
+
+def test_yandex_smart_socks4_is_refused_locally(solver):
+    with pytest.raises(ValidationException):
+        solver.yandex_smart(YANDEX_SITEKEY, YANDEX_PAGE,
+                            proxy={'type': 'SOCKS4', 'uri': '203.0.113.7:1080'})
+
+
+@pytest.mark.asyncio
+async def test_async_yandex_smart(async_solver):
+    r = await async_solver.yandex_smart(YANDEX_SITEKEY, YANDEX_PAGE)
+    assert r['code'] == YANDEX_TOKEN
+    assert r['token'] == YANDEX_TOKEN
